@@ -27,11 +27,13 @@ You are reverse engineering a script that creates another function while it runs
 
 The [included demo](examples/runtime-demo/index.html) does this with a generated function that reads CPU count and canvas output. Its [actual recorded call index](examples/runtime-demo/observed-calls.md) shows those operations and their generated code parent event. Some page context attribution remains unresolved, and the report retains that uncertainty.
 
-## Why add it to Claude Code, Codex, or OpenCode?
+## Why not just use DevTools?
 
-Your coding agent can already read scripts, drive a browser and use DevTools. Browser Core gives it an additional log recorded inside the browser, without writing JavaScript wrappers around the page's functions to log those calls.
+DevTools already lets you inspect source, pause execution, inspect values and investigate network traffic. With breakpoints, CDP or custom logging, you can obtain much of the information Browser Core records.
 
-Use it when that extra record helps investigate script behavior. For everyday frontend work, browser automation, source text and network outcomes, start with your existing tools. We have not established a general speed or accuracy advantage.
+The reason to try Browser Core is its prepared native API call log: record a visit, then inspect supported calls and available generated code links without writing page function wrappers for that investigation. The recording remains available after the page or worker exits. Claude Code, Codex and OpenCode can read the same evidence.
+
+This could be useful for repeated reverse engineering work, where collecting that evidence yourself takes effort. We are evaluating whether it actually saves enough work or improves enough answers to justify the extra installation. That advantage is not established yet. For ordinary debugging or a question a breakpoint can answer, start with DevTools.
 
 ## See an actual recording first
 
