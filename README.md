@@ -1,5 +1,7 @@
 # Browser Core
 
+**Development frozen.** This experimental snapshot and its release remain available for reference. Further feature work and the planned comparison study are paused. No human productivity advantage has been established.
+
 **A modified version of Chrome for investigating what website JavaScript does while it runs.**
 
 Browser Core is primarily for **JavaScript reverse engineers**. Open a page, interact with it, and save a log of certain browser features its scripts used. Read the report yourself or investigate it with Claude Code, Codex, or OpenCode.
