@@ -1,40 +1,37 @@
 # Browser Core
 
-**A modified version of Chrome that logs certain JavaScript activity while you use a website.**
+**A modified version of Chrome for investigating what website JavaScript does while it runs.**
 
-Open a page, interact with it, and save a report of the browser features its scripts were observed using. You can read the report yourself or ask Claude Code, Codex, or OpenCode to investigate it.
+Browser Core is primarily for **JavaScript reverse engineers**. Open a page, interact with it, and save a log of certain browser features its scripts used. Read the report yourself or investigate it with Claude Code, Codex, or OpenCode.
 
-For example, it can log a script reading the device's CPU count, turning a canvas into an image, or running code inside a background worker. Where attribution is available, the recording links a call to its script or to code created while the page was running.
+For example, it can record a script reading CPU count, turning a canvas into an image, or using browser APIs inside a background worker. Where links are available, you can follow a call back to its script or to code created by `eval` or `new Function`.
 
-It is a tool for investigating website code. It is most relevant when your question is **"What did this script actually do during this visit?"**
+## Who is it for?
 
-## Practical reasons to use it
-
-| Your situation | What you can investigate with the recording |
+| Audience | A practical reason to try it |
 | --- | --- |
-| You added a third party script and want to inspect its device reads. | Look for observed calls that read CPU count, screen information or canvas output. Follow the recorded script links where available. These calls alone do not prove tracking or fingerprinting intent. |
-| A script creates more JavaScript with `eval` or `new Function`. Reading the original file leaves you unsure what that new code did. | Find observed API calls linked to the generated code event, such as a canvas read performed by the new function. |
-| A page starts a background worker that finishes before you inspect it. | Review supported API activity recorded during that visit after the worker has exited. A worker is a separate place where the page can run JavaScript. |
-| Your coding agent offers an explanation based only on reading the source. | Give it the recording and ask which claims are backed by observed events, and which still need evidence. |
+| **JavaScript reverse engineers** | Investigate confusing or obfuscated scripts. Find which supported browser APIs ran and follow available links into generated code or workers. |
+| **Browser security and privacy researchers** | Inspect device reads and canvas activity in an authorized script investigation, then compare the observations with the source. |
+| **Developers auditing third party scripts** | Review what an analytics, advertising or other embedded script was observed doing during a visit to your site. |
+| **People building AI research tools** | Give a coding agent recorded events to cite, and check whether its explanation agrees with those observations. |
+
+It is most relevant when your question is **"What did this script actually do during this visit?"** A device read alone does not prove tracking intent, and an API call alone does not prove data was sent.
 
 ## A concrete example
 
-Suppose you want to inspect a script on your own website. You suspect it reads device information inside a function it creates at runtime.
+You are reverse engineering a script that creates another function while it runs. Reading the original file leaves you unsure what the new function did.
 
-1. Open the site through Browser Core and perform the action you want to investigate.
-2. Stop recording and open the API call report.
-3. Look for device reads and follow any links to the generated function.
-4. Ask your coding agent to explain those specific events and compare them with the source.
+1. Record an authorized page while triggering the behavior.
+2. Open the report and inspect the observed calls and available generated code links.
+3. Use those events alongside the source to explain the behavior, yourself or with a coding agent.
 
 The [included demo](examples/runtime-demo/index.html) does this with a generated function that reads CPU count and canvas output. Its [actual recorded call index](examples/runtime-demo/observed-calls.md) shows those operations and their generated code parent event. Some page context attribution remains unresolved, and the report retains that uncertainty.
-
-The result is evidence you can inspect, rather than an explanation based only on what the source appears capable of doing. It still needs interpretation.
 
 ## Why add it to Claude Code, Codex, or OpenCode?
 
 Your coding agent can already read scripts, drive a browser and use DevTools. Browser Core gives it an additional log recorded inside the browser, without writing JavaScript wrappers around the page's functions to log those calls.
 
-Use it when that extra record would help answer a specific question about script behavior. For fixing CSS, clicking through a form, reading source text or checking whether a network request succeeded, start with your existing browser tools. We have not established that Browser Core makes those ordinary tasks faster or more accurate.
+Use it when that extra record helps investigate script behavior. For everyday frontend work, browser automation, source text and network outcomes, start with your existing tools. We have not established a general speed or accuracy advantage.
 
 ## See an actual recording first
 
