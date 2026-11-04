@@ -1,5 +1,7 @@
 # Use Browser Core from Claude Code
 
+For Claude Code, Codex and OpenCode installation paths, see [harness integration](HARNESSES.md).
+
 Browser Core adds a native runtime recording to the tools Claude Code already uses. Continue using source inspection, Playwright, CDP, DevTools, hooks and server logs when those answer the question more directly.
 
 Copy `.claude/skills/browser-core` into your project's `.claude/skills/` directory, or your personal Claude skills directory. Then ask Claude to use the browser core skill for a page you own or are authorized to inspect.
