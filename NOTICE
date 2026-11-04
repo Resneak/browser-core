@@ -1,0 +1,13 @@
+Browser Core includes original tooling and patches against Chromium.
+
+The MIT license in this repository applies to original Browser Core code.
+It does not replace the licenses of Chromium or other third party code.
+Patch context and modified upstream material retain the upstream notices
+and license terms. Chromium's license is included in THIRD_PARTY/Chromium-LICENSE.
+
+Chromium source: https://chromium.googlesource.com/chromium/src.git
+Pinned revision: bf6d8a66b43635a532bdad773407285fac0121e9
+
+The Windows runtime includes Chromium and its dependencies. Its distribution
+contains Chromium-LICENSE and Chromium-THIRD-PARTY-NOTICES.html, generated from
+the pinned build. Chromium also exposes third party notices at chrome://credits.

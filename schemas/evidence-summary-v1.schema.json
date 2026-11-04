@@ -1,0 +1,642 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:browser-core:evidence-summary:1",
+  "title": "Browser Core payload-free saved evidence summary",
+  "description": "Relational partitions and exact range bounds are additionally checked by the decoder.",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "status",
+        "bundle",
+        "recording",
+        "reader_runtime",
+        "capture",
+        "counts",
+        "timestamps",
+        "apis",
+        "recording_health",
+        "exporter_reported_health",
+        "semantics"
+      ],
+      "properties": {
+        "schema": {
+          "const": "browser-core.evidence-summary/1"
+        },
+        "status": {
+          "const": "ok"
+        },
+        "bundle": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "sha256",
+            "expected_digest_matched",
+            "authenticity"
+          ],
+          "properties": {
+            "sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "expected_digest_matched": {
+              "type": "boolean"
+            },
+            "authenticity": {
+              "const": "unsigned-exporter-metadata"
+            }
+          }
+        },
+        "recording": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "sha256",
+            "bytes",
+            "packets",
+            "source_bytes",
+            "excluded_tail_bytes",
+            "source_phase"
+          ],
+          "properties": {
+            "sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "bytes": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,18})$"
+            },
+            "packets": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,18})$"
+            },
+            "source_bytes": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,18})$"
+            },
+            "excluded_tail_bytes": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,18})$"
+            },
+            "source_phase": {
+              "enum": [
+                "live-prefix",
+                "finalized-recording",
+                "recovered-prefix",
+                "interrupted-recording",
+                "limited-recording"
+              ]
+            }
+          }
+        },
+        "reader_runtime": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode",
+            "producer_build",
+            "reader_build"
+          ],
+          "properties": {
+            "mode": {
+              "enum": [
+                "producer-build",
+                "compatible-reader"
+              ]
+            },
+            "producer_build": {
+              "$ref": "#/$defs/build"
+            },
+            "reader_build": {
+              "$ref": "#/$defs/build"
+            }
+          }
+        },
+        "capture": {
+          "enum": [
+            {
+              "schema": "browser-core.inspection/1",
+              "allowlist": "fingerprint-v1"
+            },
+            {
+              "schema": "browser-core.inspection/2",
+              "allowlist": "fingerprint-v2"
+            },
+            {
+              "schema": "browser-core.inspection/3",
+              "allowlist": "research-v3"
+            }
+          ]
+        },
+        "counts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "binding_value_records",
+            "thread_process_linked_records",
+            "thread_process_unlinked_records",
+            "capture_envelope_matching_records",
+            "capture_envelope_mismatched_records",
+            "recognized_api_records",
+            "unrecognized_api_records",
+            "completion_compatible_records",
+            "completion_incompatible_records"
+          ],
+          "properties": {
+            "binding_value_records": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "thread_process_linked_records": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "thread_process_unlinked_records": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "capture_envelope_matching_records": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "capture_envelope_mismatched_records": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "recognized_api_records": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "unrecognized_api_records": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "completion_compatible_records": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "completion_incompatible_records": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          }
+        },
+        "timestamps": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "first_ns",
+            "last_ns",
+            "clock",
+            "encoding"
+          ],
+          "properties": {
+            "first_ns": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "pattern": "^(0|[1-9][0-9]{0,18})$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "last_ns": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "pattern": "^(0|[1-9][0-9]{0,18})$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "clock": {
+              "const": "recording-clock"
+            },
+            "encoding": {
+              "const": "decimal-string"
+            }
+          }
+        },
+        "apis": {
+          "type": "array",
+          "maxItems": 112,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "api",
+              "records",
+              "first_ns",
+              "last_ns"
+            ],
+            "properties": {
+              "api": {
+                "enum": [
+                  "AudioBuffer.duration.get",
+                  "AudioBuffer.getChannelData",
+                  "AudioBuffer.length.get",
+                  "AudioBuffer.numberOfChannels.get",
+                  "AudioBuffer.sampleRate.get",
+                  "BaseAudioContext.currentTime.get",
+                  "BaseAudioContext.sampleRate.get",
+                  "BaseAudioContext.state.get",
+                  "BatteryManager.charging.get",
+                  "BatteryManager.level.get",
+                  "CanvasRenderingContext2D.getImageData",
+                  "CanvasRenderingContext2D.measureText",
+                  "FontFaceSet.check",
+                  "FontFaceSet.status.get",
+                  "GPU.requestAdapter",
+                  "GPUAdapter.info.get",
+                  "GPUAdapter.limits.get",
+                  "GPUAdapterInfo.architecture.get",
+                  "GPUAdapterInfo.description.get",
+                  "GPUAdapterInfo.device.get",
+                  "GPUAdapterInfo.vendor.get",
+                  "HTMLCanvasElement.toDataURL",
+                  "HTMLMediaElement.canPlayType",
+                  "ImageData.colorSpace.get",
+                  "ImageData.data.get",
+                  "ImageData.height.get",
+                  "ImageData.pixelFormat.get",
+                  "ImageData.width.get",
+                  "MediaDevices.enumerateDevices",
+                  "MediaQueryList.matches.get",
+                  "MediaQueryList.media.get",
+                  "MediaRecorder.isTypeSupported",
+                  "Navigator.appCodeName.get",
+                  "Navigator.appName.get",
+                  "Navigator.appVersion.get",
+                  "Navigator.cookieEnabled.get",
+                  "Navigator.deviceMemory.get",
+                  "Navigator.hardwareConcurrency.get",
+                  "Navigator.language.get",
+                  "Navigator.languages.get",
+                  "Navigator.maxTouchPoints.get",
+                  "Navigator.onLine.get",
+                  "Navigator.pdfViewerEnabled.get",
+                  "Navigator.platform.get",
+                  "Navigator.product.get",
+                  "Navigator.productSub.get",
+                  "Navigator.userAgent.get",
+                  "Navigator.userAgentData.get",
+                  "Navigator.vendor.get",
+                  "Navigator.vendorSub.get",
+                  "Navigator.webdriver.get",
+                  "NavigatorUAData.getHighEntropyValues",
+                  "NetworkInformation.downlink.get",
+                  "NetworkInformation.effectiveType.get",
+                  "NetworkInformation.rtt.get",
+                  "NetworkInformation.saveData.get",
+                  "OffscreenCanvasRenderingContext2D.getImageData",
+                  "OffscreenCanvasRenderingContext2D.measureText",
+                  "Permissions.query",
+                  "Screen.availHeight.get",
+                  "Screen.availLeft.get",
+                  "Screen.availTop.get",
+                  "Screen.availWidth.get",
+                  "Screen.colorDepth.get",
+                  "Screen.height.get",
+                  "Screen.pixelDepth.get",
+                  "Screen.width.get",
+                  "ScreenOrientation.angle.get",
+                  "ScreenOrientation.type.get",
+                  "SpeechSynthesis.getVoices",
+                  "StorageManager.estimate",
+                  "SubtleCrypto.digest.input",
+                  "TextMetrics.actualBoundingBoxAscent.get",
+                  "TextMetrics.actualBoundingBoxDescent.get",
+                  "TextMetrics.actualBoundingBoxLeft.get",
+                  "TextMetrics.actualBoundingBoxRight.get",
+                  "TextMetrics.alphabeticBaseline.get",
+                  "TextMetrics.emHeightAscent.get",
+                  "TextMetrics.emHeightDescent.get",
+                  "TextMetrics.fontBoundingBoxAscent.get",
+                  "TextMetrics.fontBoundingBoxDescent.get",
+                  "TextMetrics.hangingBaseline.get",
+                  "TextMetrics.ideographicBaseline.get",
+                  "TextMetrics.width.get",
+                  "WebGL2RenderingContext.getParameter",
+                  "WebGL2RenderingContext.getShaderPrecisionFormat",
+                  "WebGL2RenderingContext.getSupportedExtensions",
+                  "WebGLRenderingContext.getParameter",
+                  "WebGLRenderingContext.getShaderPrecisionFormat",
+                  "WebGLRenderingContext.getSupportedExtensions",
+                  "WebGLShaderPrecisionFormat.precision.get",
+                  "WebGLShaderPrecisionFormat.rangeMax.get",
+                  "WebGLShaderPrecisionFormat.rangeMin.get",
+                  "WorkerNavigator.appCodeName.get",
+                  "WorkerNavigator.appName.get",
+                  "WorkerNavigator.appVersion.get",
+                  "WorkerNavigator.cookieEnabled.get",
+                  "WorkerNavigator.deviceMemory.get",
+                  "WorkerNavigator.hardwareConcurrency.get",
+                  "WorkerNavigator.language.get",
+                  "WorkerNavigator.languages.get",
+                  "WorkerNavigator.maxTouchPoints.get",
+                  "WorkerNavigator.onLine.get",
+                  "WorkerNavigator.pdfViewerEnabled.get",
+                  "WorkerNavigator.platform.get",
+                  "WorkerNavigator.product.get",
+                  "WorkerNavigator.productSub.get",
+                  "WorkerNavigator.userAgent.get",
+                  "WorkerNavigator.userAgentData.get",
+                  "WorkerNavigator.vendor.get",
+                  "WorkerNavigator.vendorSub.get",
+                  "WorkerNavigator.webdriver.get"
+                ]
+              },
+              "records": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "first_ns": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]{0,18})$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "last_ns": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]{0,18})$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "recording_health": {
+          "$ref": "#/$defs/health"
+        },
+        "exporter_reported_health": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/health"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "semantics": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "population",
+            "unique_calls",
+            "api_counts",
+            "capability_basis",
+            "zero_count",
+            "thread_process_link_is_context_attribution",
+            "private_payloads_validated",
+            "private_values_included",
+            "active_probes",
+            "browser_launched",
+            "source_snapshot",
+            "recording_metadata",
+            "attribution_analysis",
+            "decoder_read",
+            "live_freshness",
+            "proves_capture_complete",
+            "proves_server_behavior"
+          ],
+          "properties": {
+            "population": {
+              "const": "native-binding-value-records"
+            },
+            "unique_calls": {
+              "const": false
+            },
+            "api_counts": {
+              "const": "matching-envelope-and-compatible-completion"
+            },
+            "capability_basis": {
+              "const": "reader-known-capture-contract"
+            },
+            "zero_count": {
+              "const": "not-observed-in-this-recording"
+            },
+            "thread_process_link_is_context_attribution": {
+              "const": false
+            },
+            "private_payloads_validated": {
+              "const": false
+            },
+            "private_values_included": {
+              "const": false
+            },
+            "active_probes": {
+              "const": false
+            },
+            "browser_launched": {
+              "const": false
+            },
+            "source_snapshot": {
+              "const": "fixed-verified-copy"
+            },
+            "recording_metadata": {
+              "const": "unsigned-exporter-claims-except-verified-bytes-and-sha256"
+            },
+            "attribution_analysis": {
+              "const": "not-performed"
+            },
+            "decoder_read": {
+              "const": "end-of-file"
+            },
+            "live_freshness": {
+              "const": "not-applicable"
+            },
+            "proves_capture_complete": {
+              "const": false
+            },
+            "proves_server_behavior": {
+              "const": false
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "status",
+        "code"
+      ],
+      "properties": {
+        "schema": {
+          "const": "browser-core.evidence-summary/1"
+        },
+        "status": {
+          "const": "error"
+        },
+        "code": {
+          "enum": [
+            "summary-unavailable",
+            "interrupted"
+          ]
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "build": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provenance",
+        "executable_sha256_16",
+        "runtime_bundle_sha256_16",
+        "attestation_created_at"
+      ],
+      "properties": {
+        "provenance": {
+          "const": "attested-browser-core"
+        },
+        "executable_sha256_16": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{16}$"
+        },
+        "runtime_bundle_sha256_16": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{16}$"
+        },
+        "attestation_created_at": {
+          "type": "string",
+          "maxLength": 64,
+          "format": "date-time"
+        }
+      }
+    },
+    "health": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "capture_stats_seen",
+        "counters_truncated",
+        "sorter_dropped_events",
+        "proves_complete",
+        "counters"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "issues-reported",
+            "no-issues-reported",
+            "awaiting-capture-stats"
+          ]
+        },
+        "capture_stats_seen": {
+          "type": "boolean"
+        },
+        "counters_truncated": {
+          "type": "boolean"
+        },
+        "sorter_dropped_events": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$"
+        },
+        "proves_complete": {
+          "const": false
+        },
+        "counters": {
+          "type": "array",
+          "maxItems": 128,
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "name",
+                  "kind",
+                  "value"
+                ],
+                "properties": {
+                  "name": {
+                    "enum": [
+                      "track_event_parser_errors",
+                      "track_event_tokenizer_errors",
+                      "traced_buf_bytes_overwritten",
+                      "traced_buf_chunks_overwritten",
+                      "traced_buf_chunks_discarded",
+                      "browser_core_observer_omissions",
+                      "traced_data_source_stop_timeouts",
+                      "traced_data_source_stop_timeout_pending_instances",
+                      "traced_data_source_stop_timeout_pending_producers",
+                      "traced_data_source_stop_timeout_details_truncated"
+                    ]
+                  },
+                  "kind": {
+                    "enum": [
+                      "loss",
+                      "error"
+                    ]
+                  },
+                  "value": {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]{0,18})$"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "name_sha256",
+                  "kind",
+                  "value"
+                ],
+                "properties": {
+                  "name_sha256": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "kind": {
+                    "enum": [
+                      "loss",
+                      "error"
+                    ]
+                  },
+                  "value": {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]{0,18})$"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

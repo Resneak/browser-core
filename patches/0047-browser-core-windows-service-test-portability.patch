@@ -1,0 +1,32 @@
+diff --git a/third_party/perfetto/src/tracing/service/tracing_service_impl_unittest.cc b/third_party/perfetto/src/tracing/service/tracing_service_impl_unittest.cc
+--- a/third_party/perfetto/src/tracing/service/tracing_service_impl_unittest.cc
++++ b/third_party/perfetto/src/tracing/service/tracing_service_impl_unittest.cc
+@@ -7201,7 +7201,8 @@
+   const auto& trigger_hit_event = events.clone_trigger_hit();
+   EXPECT_EQ(trigger_hit_event.trigger_name(), kCloneTriggerName);
+   EXPECT_EQ(trigger_hit_event.producer_name(), kMockProducerName);
+-  EXPECT_EQ(trigger_hit_event.producer_uid(), kMockProducerUid);
++  EXPECT_EQ(trigger_hit_event.producer_uid(),
++            static_cast<uint32_t>(kMockProducerUid));
+   EXPECT_GT(trigger_hit_event.boot_time_ns(), 0ul);
+   EXPECT_EQ(trigger_hit_event.trigger_delay_ms(), 1u);
+ 
+@@ -8218,6 +8219,9 @@
+                                                   Eq("payload-2")))));
+ }
+ 
++// This case watches POSIX pipe descriptors; Windows Pipe exposes HANDLEs.
++// Keep this unrelated platform-specific case excluded on Windows.
++#if !PERFETTO_BUILDFLAG(PERFETTO_OS_WIN)
+ TEST_F(TracingServiceImplTest, DetachDurationTimeoutFreeBuffers) {
+   std::unique_ptr<MockConsumer> consumer = CreateMockConsumer();
+   consumer->Connect(svc.get());
+@@ -8259,6 +8263,8 @@
+   consumer->Attach("mykey");
+   task_runner.RunUntilCheckpoint(on_attach_name);
+ }
++
++#endif  // !PERFETTO_BUILDFLAG(PERFETTO_OS_WIN)
+ 
+ TEST_F(TracingServiceImplTest, SlowStartingDataSources) {
+   std::unique_ptr<MockConsumer> consumer = CreateMockConsumer();

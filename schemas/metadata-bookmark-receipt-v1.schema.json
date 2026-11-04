@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:browser-core:metadata-bookmark-receipt:1",
+  "title": "Bounded local metadata bookmark receipt",
+  "description": "At most 4096 exact ASCII/LF bytes including final LF. saved-local-artifacts follows file fsync and readback; verified-local-artifacts checks only saved artifact integrity; replayed-exact-response additionally compares the exact response under the supplied digest-bound bundle and reader. No operation certifies outer caller delivery.",
+  "oneOf": [
+    {"type": "object", "additionalProperties": false, "required": ["schema", "status", "code"],
+      "properties": {"schema": {"const": "browser-core.metadata-bookmark-receipt/1"},
+        "status": {"const": "error"}, "code": {"enum": ["bookmark-unavailable", "interrupted"]}}},
+    {"type": "object", "additionalProperties": false,
+      "required": ["schema", "status", "operation", "manifest", "response", "page", "returned_events", "matching_events", "limitations"],
+      "properties": {
+        "schema": {"const": "browser-core.metadata-bookmark-receipt/1"}, "status": {"const": "ok"},
+        "operation": {"enum": ["saved-local-artifacts", "verified-local-artifacts", "replayed-exact-response"]},
+        "manifest": {"type": "object", "additionalProperties": false, "required": ["name", "sha256", "bytes"],
+          "properties": {"name": {"const": "manifest.json"},
+            "sha256": {"$ref": "urn:browser-core:metadata-bookmark:1#/$defs/digest"},
+            "bytes": {"type": "integer", "minimum": 1, "maximum": 65536}}},
+        "response": {"$ref": "urn:browser-core:metadata-bookmark:1#/$defs/response"},
+        "page": {"$ref": "urn:browser-core:metadata-bookmark:1#/$defs/page"},
+        "returned_events": {"type": "integer", "minimum": 0, "maximum": 100},
+        "matching_events": {"$ref": "urn:browser-core:metadata-rows:1#/$defs/count"},
+        "limitations": {"$ref": "urn:browser-core:metadata-bookmark:1#/$defs/limitations"}
+      }}
+  ]
+}

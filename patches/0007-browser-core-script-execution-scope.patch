@@ -1,0 +1,15 @@
+diff --git a/third_party/blink/renderer/bindings/core/v8/v8_script_runner.cc b/third_party/blink/renderer/bindings/core/v8/v8_script_runner.cc
+--- a/third_party/blink/renderer/bindings/core/v8/v8_script_runner.cc
++++ b/third_party/blink/renderer/bindings/core/v8/v8_script_runner.cc
+@@ -495,6 +495,11 @@ v8::MaybeLocal<v8::Value> V8ScriptRunner::RunCompiledScript(
+   TRACE_EVENT1("v8", "v8.run", "fileName",
+                TRACE_STR_COPY(*v8::String::Utf8Value(isolate, script_name)));
+   RuntimeCallStatsScopedTracer rcs_scoped_tracer(isolate);
+   RUNTIME_CALL_TIMER_SCOPE(isolate, RuntimeCallStats::CounterId::kV8);
++  TRACE_EVENT("browser_core.debug", "BrowserCore.ScriptExecution", "schema",
++              "browser-core.native/1", "event_category", "execution",
++              "event_name", "script.execution", "component", "blink.v8",
++              "context_id", context_id, "context_kind", context_kind,
++              "script_id", script_id);
+ 
+   v8::MicrotaskQueue* microtask_queue = ToMicrotaskQueue(context);

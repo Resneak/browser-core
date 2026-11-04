@@ -1,0 +1,51 @@
+diff --git a/content/browser/renderer_host/render_process_host_impl.cc b/content/browser/renderer_host/render_process_host_impl.cc
+--- a/content/browser/renderer_host/render_process_host_impl.cc
++++ b/content/browser/renderer_host/render_process_host_impl.cc
+@@ -320,6 +320,8 @@ namespace {
+ 
+ using perfetto::protos::pbzero::ChromeTrackEvent;
+ 
++constexpr char kBrowserCoreEvaluationSwitch[] = "browser-core-evaluation";
++
+ // Stores the maximum number of renderer processes the content module can
+ // create. Only applies if it is set to a non-zero value.
+ size_t g_max_renderer_count_override = 0;
+@@ -4017,6 +4019,14 @@ void RenderProcessHostImpl::PropagateBrowserCommandLineToRenderer(
+   };
+   renderer_cmd->CopySwitchesFrom(browser_cmd, kSwitchNames);
+ 
++  if (browser_cmd.HasSwitch(kBrowserCoreEvaluationSwitch)) {
++    renderer_cmd->AppendSwitch(kBrowserCoreEvaluationSwitch);
++    constexpr const char* kPersonaSwitches[] = {
++        "browser-core-hardware-concurrency", "browser-core-timezone",
++        "browser-core-locale"};
++    renderer_cmd->CopySwitchesFrom(browser_cmd, kPersonaSwitches);
++  }
++
+   // Propagate WebNN switches needed by backends that run in the renderer.
+   renderer_cmd->CopySwitchesFrom(
+       browser_cmd, switches::GetWebNNSwitchesForRendererProcess());
+diff --git a/content/child/runtime_features.cc b/content/child/runtime_features.cc
+--- a/content/child/runtime_features.cc
++++ b/content/child/runtime_features.cc
+@@ -63,6 +63,8 @@
+ using blink::WebRuntimeFeatures;
+ 
+ namespace {
++
++constexpr char kBrowserCoreEvaluationSwitch[] = "browser-core-evaluation";
+ 
+ enum RuntimeFeatureEnableOptions {
+   // - If the base::Feature default is overridden by field trial or command
+@@ -423,6 +425,11 @@ void SetRuntimeFeaturesFromCommandLine(const base::CommandLine& command_line) {
+       mapping.feature_enabler(mapping.target_enabled_state);
+     }
+   }
++
++  if (command_line.HasSwitch(kBrowserCoreEvaluationSwitch)) {
++    WebRuntimeFeatures::EnableAutomationControlled(false);
++    return;
++  }
+ 
+   // Set EnableAutomationControlled if the caller passes
+   // --remote-debugging-port=0 on the command line. This means

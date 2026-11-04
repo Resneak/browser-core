@@ -1,0 +1,169 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>browser-core-stream-calibration-pending</title>
+<script>
+  const params = new URLSearchParams(location.search);
+  const reads = Number(params.get("reads"));
+  const warmupReads = Number(params.get("warmup"));
+
+  function descriptorVector(prototype) {
+    const descriptor = Object.getOwnPropertyDescriptor(prototype, "read");
+    const fn = descriptor && descriptor.value;
+    return {
+      configurable: descriptor && descriptor.configurable === true,
+      enumerable: descriptor && descriptor.enumerable === true,
+      writable: descriptor && descriptor.writable === true,
+      function_name: fn && fn.name,
+      function_length: fn && fn.length,
+      native_source: typeof fn === "function" &&
+        Function.prototype.toString.call(fn).includes("[native code]"),
+      reference: fn,
+    };
+  }
+
+  function portableDescriptor(vector, stable) {
+    return {
+      configurable: vector.configurable,
+      enumerable: vector.enumerable,
+      writable: vector.writable,
+      function_name: vector.function_name,
+      function_length: vector.function_length,
+      native_source: vector.native_source,
+      identity_stable: stable,
+    };
+  }
+
+  async function drainDefault(count) {
+    let produced = 0;
+    const stream = new ReadableStream({
+      pull(controller) {
+        if (produced >= count) {
+          controller.close();
+          return;
+        }
+        controller.enqueue(new Uint8Array(32));
+        produced += 1;
+      },
+    });
+    const reader = stream.getReader();
+    let chunks = 0;
+    let bytes = 0;
+    let closeValueUndefined = false;
+    for (;;) {
+      const result = await reader.read();
+      if (result.done) {
+        closeValueUndefined = result.value === undefined;
+        break;
+      }
+      chunks += 1;
+      bytes += result.value.byteLength;
+    }
+    reader.releaseLock();
+    return {
+      chunks,
+      bytes,
+      closed: true,
+      close_value_undefined: closeValueUndefined,
+      lock_released: stream.locked === false,
+    };
+  }
+
+  async function drainBYOB(count) {
+    const stream = new ReadableStream({
+      type: "bytes",
+      start(controller) {
+        for (let index = 0; index < count; index += 1) {
+          controller.enqueue(new Uint8Array(32));
+        }
+        controller.close();
+      },
+    });
+    const reader = stream.getReader({ mode: "byob" });
+    let chunks = 0;
+    let bytes = 0;
+    let closeValueType = null;
+    let closeValueLength = null;
+    for (;;) {
+      const result = await reader.read(new Uint8Array(32));
+      if (result.done) {
+        closeValueType = Object.prototype.toString.call(result.value);
+        closeValueLength = result.value && result.value.byteLength;
+        break;
+      }
+      chunks += 1;
+      bytes += result.value.byteLength;
+    }
+    reader.releaseLock();
+    return {
+      chunks,
+      bytes,
+      closed: true,
+      close_value_type: closeValueType,
+      close_value_length: closeValueLength,
+      lock_released: stream.locked === false,
+    };
+  }
+
+  async function timed(operation) {
+    const started = performance.now();
+    const result = await operation();
+    return { ...result, duration_ms: performance.now() - started };
+  }
+
+  async function publish(document) {
+    const response = await fetch("/result", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(document),
+    });
+    if (!response.ok) throw new Error("result publish failed");
+  }
+
+  async function emitCausalReadinessMarker() {
+    // Startup tracing is asynchronous. Keep this outside both timed reader
+    // loops and emit one metadata-only browser_core.debug event only after a
+    // bounded delay, so a causal control cannot pass with an absent trace.
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    const canvas = document.createElement("canvas");
+    canvas.width = 1;
+    canvas.height = 1;
+    canvas.toDataURL();
+  }
+
+  addEventListener("DOMContentLoaded", async () => {
+    try {
+      if (!Number.isInteger(reads) || reads < 1 || reads > 4096 ||
+          !Number.isInteger(warmupReads) || warmupReads < 1 ||
+          warmupReads > 256) {
+        throw new Error("invalid calibration bounds");
+      }
+      const defaultBefore = descriptorVector(ReadableStreamDefaultReader.prototype);
+      const byobBefore = descriptorVector(ReadableStreamBYOBReader.prototype);
+      await drainDefault(warmupReads);
+      await drainBYOB(warmupReads);
+      const defaultResult = await timed(() => drainDefault(reads));
+      const byobResult = await timed(() => drainBYOB(reads));
+      const defaultAfter = Object.getOwnPropertyDescriptor(
+        ReadableStreamDefaultReader.prototype, "read").value;
+      const byobAfter = Object.getOwnPropertyDescriptor(
+        ReadableStreamBYOBReader.prototype, "read").value;
+      const result = {
+        schema: "browser-core.stream-calibration-result/1",
+        verdict: "pass",
+        reads,
+        warmup_reads: warmupReads,
+        descriptors: {
+          default: portableDescriptor(defaultBefore, defaultBefore.reference === defaultAfter),
+          byob: portableDescriptor(byobBefore, byobBefore.reference === byobAfter),
+        },
+        default: defaultResult,
+        byob: byobResult,
+      };
+      await emitCausalReadinessMarker();
+      await publish(result);
+      document.title = "browser-core-stream-calibration-ok";
+    } catch (error) {
+      document.title = `browser-core-stream-calibration-failed:${error.name}`;
+    }
+  });
+</script>

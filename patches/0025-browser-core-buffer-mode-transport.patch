@@ -1,0 +1,42 @@
+diff --git a/services/tracing/public/mojom/perfetto_service.mojom b/services/tracing/public/mojom/perfetto_service.mojom
+--- a/services/tracing/public/mojom/perfetto_service.mojom
++++ b/services/tracing/public/mojom/perfetto_service.mojom
+@@ -201,6 +201,9 @@
+   // and then configure specific data sources to be written into.
+   uint32 size_kb;
+   BufferFillPolicy fill_policy;
++  // Preserve the explicitly selected Perfetto V2 mode across the consumer IPC.
++  // False keeps the existing default buffer implementation.
++  bool use_v2_buffer = false;
+ };
+ 
+ struct DataSource {
+diff --git a/services/tracing/public/mojom/trace_config_mojom_traits.h b/services/tracing/public/mojom/trace_config_mojom_traits.h
+--- a/services/tracing/public/mojom/trace_config_mojom_traits.h
++++ b/services/tracing/public/mojom/trace_config_mojom_traits.h
+@@ -61,6 +61,11 @@
+   static perfetto::TraceConfig::BufferConfig::FillPolicy fill_policy(
+       const perfetto::TraceConfig::BufferConfig& src) {
+     return src.fill_policy();
++  }
++
++  static bool use_v2_buffer(const perfetto::TraceConfig::BufferConfig& src) {
++    return src.experimental_mode() ==
++           perfetto::TraceConfig::BufferConfig::TRACE_BUFFER_V2;
+   }
+ 
+   static bool Read(tracing::mojom::BufferConfigDataView data,
+diff --git a/services/tracing/public/mojom/trace_config_mojom_traits.cc b/services/tracing/public/mojom/trace_config_mojom_traits.cc
+--- a/services/tracing/public/mojom/trace_config_mojom_traits.cc
++++ b/services/tracing/public/mojom/trace_config_mojom_traits.cc
+@@ -18,6 +18,10 @@
+     Read(tracing::mojom::BufferConfigDataView data,
+          perfetto::TraceConfig::BufferConfig* out) {
+   out->set_size_kb(data.size_kb());
++  out->set_experimental_mode(
++      data.use_v2_buffer()
++          ? perfetto::TraceConfig::BufferConfig::TRACE_BUFFER_V2
++          : perfetto::TraceConfig::BufferConfig::MODE_UNSPECIFIED);
+   perfetto::TraceConfig::BufferConfig::FillPolicy policy;
+   if (data.ReadFillPolicy(&policy)) {
+     out->set_fill_policy(policy);

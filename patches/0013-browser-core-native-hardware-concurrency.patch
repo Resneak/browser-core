@@ -1,0 +1,32 @@
+diff --git a/third_party/blink/renderer/core/frame/navigator_concurrent_hardware.cc b/third_party/blink/renderer/core/frame/navigator_concurrent_hardware.cc
+--- a/third_party/blink/renderer/core/frame/navigator_concurrent_hardware.cc
++++ b/third_party/blink/renderer/core/frame/navigator_concurrent_hardware.cc
+@@ -4,12 +4,27 @@
+ 
+ #include "third_party/blink/renderer/core/frame/navigator_concurrent_hardware.h"
+ 
++#include "base/command_line.h"
++#include "base/strings/string_number_conversions.h"
+ #include "base/system/sys_info.h"
+ 
+ namespace blink {
+ 
+ unsigned NavigatorConcurrentHardware::hardwareConcurrency() const {
+-  return static_cast<unsigned>(base::SysInfo::NumberOfProcessors());
++  // One native value is shared by pages and workers in this renderer. Keep
++  // ordinary Chromium behavior unless an explicit Core evaluation requested it.
++  static const unsigned concurrency = [] {
++    const auto* command = base::CommandLine::ForCurrentProcess();
++    unsigned requested = 0;
++    if (command->HasSwitch("browser-core-evaluation") &&
++        base::StringToUint(
++            command->GetSwitchValueASCII("browser-core-hardware-concurrency"),
++            &requested) && requested >= 1 && requested <= 1024) {
++      return requested;
++    }
++    return static_cast<unsigned>(base::SysInfo::NumberOfProcessors());
++  }();
++  return concurrency;
+ }
+ 
+ }  // namespace blink

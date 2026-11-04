@@ -1,0 +1,150 @@
+diff --git a/third_party/blink/renderer/bindings/core/v8/browser_core_binding_observer.cc b/third_party/blink/renderer/bindings/core/v8/browser_core_binding_observer.cc
+--- a/third_party/blink/renderer/bindings/core/v8/browser_core_binding_observer.cc
++++ b/third_party/blink/renderer/bindings/core/v8/browser_core_binding_observer.cc
+@@ -3,7 +3,6 @@
+ // found in the LICENSE file.
+ #include "third_party/blink/renderer/bindings/core/v8/browser_core_binding_observer.h"
+ 
+-#include "third_party/blink/renderer/bindings/core/v8/to_v8_traits.h"
+ #include "third_party/blink/renderer/bindings/core/v8/v8_image_data.h"
+ #include "third_party/blink/renderer/bindings/core/v8/v8_union_float16array_float32array_uint8clampedarray.h"
+ #include "third_party/blink/renderer/core/html/canvas/image_data.h"
+@@ -181,6 +180,30 @@
+     cache->json = *encoded;
+   }
+   return encoded.value_or("{}");
++}
++
++// Invalid per-context data must never be used to build wrappers or walk
++// document/frame state. These tokens live on the still-present native owners;
++// they do not claim a document, frame, URL or initiating JavaScript caller.
++std::string LimitedContextMetadata(ScriptState* state,
++                                   ExecutionContext* context) {
++  base::DictValue out;
++  out.Set("schema", "browser-core.inspection-context/2");
++  out.Set("context_id", context->GetExecutionContextToken().ToString());
++  out.Set("v8_context_id", state->GetToken().ToString());
++  out.Set("realm_id", state->World().GetWorldId());
++  out.Set("context_kind", context->IsWindow() ? "window" :
++      context->IsWorkerGlobalScope() ? "worker" : "other");
++  out.Set("unavailable", "invalid-script-context");
++  return base::WriteJson(out).value_or("{}");
++}
++
++// A native call may run other work before returning. Recheck the current
++// script context before V8 descriptor operations rather than reuse entry state.
++bool HasUsableCurrentContext(v8::Isolate* isolate) {
++  if (!isolate->InContext()) return false;
++  auto* state = ScriptState::MaybeFrom(isolate, isolate->GetCurrentContext());
++  return state && state->ContextIsValid();
+ }
+ 
+ base::DictValue Number(double value) {
+@@ -392,13 +415,67 @@
+   if (value.IsEmpty()) return Observe(isolate, value, true);
+   auto* image = V8ImageData::ToWrappable(isolate, value);
+   if (!image) return Observe(isolate, value, true);
+-  auto* state = ScriptState::ForRelevantRealm(isolate, value.As<v8::Object>());
+-  const auto data = ToV8Traits<V8ImageDataArray>::ToV8(state, image->data());
++  // Read the existing native backing store, never construct a V8 wrapper.
++  // ImageData owns NotShared typed arrays. A live callback handle retains the
++  // wrapper/native object; no JS operation occurs between attachment check and
++  // the bounded copy. Unsupported pixel types retain the existing omission.
+   base::DictValue out;
+   out.Set("type", "ImageData");
+   out.Set("width", static_cast<int>(image->width()));
+   out.Set("height", static_cast<int>(image->height()));
+-  out.Set("data", ObserveExtended(isolate, data, false));
++  const auto* array = image->data();
++  const bool byte_pixels = array->IsUint8ClampedArray();
++  if (!byte_pixels && !array->IsFloat32Array()) {
++    // Unsupported pixel values do not invalidate the native image dimensions.
++    base::DictValue data;
++    data.Set("type", "object");
++    data.Set("omitted", "no-object-inspection");
++    out.Set("data", std::move(data));
++    return out;
++  }
++  const size_t element_size = byte_pixels ? 1 : 4;
++  const size_t length = byte_pixels ? array->GetAsUint8ClampedArray()->length() :
++      array->GetAsFloat32Array()->length();
++  base::DictValue data;
++  data.Set("type", byte_pixels ? "Uint8ClampedArray" : "Float32Array");
++  data.Set("length", static_cast<double>(length));
++  if (image->IsBufferBaseDetached() ||
++      length > (1024 * 1024) / element_size) {
++    data.Set("omitted", "buffer-not-readable-or-length-limit");
++  } else {
++    const auto source = image->RawByteSpan();
++    if (source.size() != length * element_size) {
++      data.Set("omitted", "buffer-changed");
++    } else {
++      const std::vector<uint8_t> bytes(source.begin(), source.end());
++      base::ListValue values;
++      for (size_t i = 0; i < std::min(length, size_t{64}); ++i) {
++        double number;
++        if (byte_pixels) {
++          number = bytes[i];
++        } else {
++          float item = 0;
++          base::byte_span_from_ref(base::allow_nonunique_obj, item).copy_from(
++              base::span(bytes).subspan(i * element_size, element_size));
++          number = item;
++        }
++        values.Append(Number(number));
++      }
++      if (length <= 64) {
++        data.Set("values", std::move(values));
++      } else {
++        DigestValue digest;
++        if (!ComputeDigest(kHashAlgorithmSha256, bytes, digest)) {
++          data.Set("omitted", "buffer-changed");
++        } else {
++          data.Set("byte_length", static_cast<int>(bytes.size()));
++          data.Set("sha256", base::HexEncodeLower(digest));
++          data.Set("prefix_values", std::move(values));
++        }
++      }
++    }
++  }
++  out.Set("data", std::move(data));
+   return out;
+ }
+ }  // namespace
+@@ -430,19 +507,21 @@
+     RecordOmittedBinding(api, "missing-script-state");
+     return;
+   }
+-  if (!state->ContextIsValid()) {
+-    RecordOmittedBinding(api, "invalid-script-context");
+-    return;
+-  }
++  const bool context_limited = !state->ContextIsValid();
+   auto* context = ExecutionContext::From(state);
+   if (!context) {
+-    RecordOmittedBinding(api, "missing-execution-context");
++    RecordOmittedBinding(api, context_limited ? "invalid-script-context" :
++        "missing-execution-context");
+     return;
+   }
++  // The validity guard still excludes all per-context-dependent work. The
++  // limited path below uses only immutable native identity and direct values;
++  // it never borrows a live realm to label or wrap a disposed realm's result.
+   context_id_ = context->GetExecutionContextToken().ToString();
+   context_kind_ = context->IsWindow() ? "window" : context->IsWorkerGlobalScope() ? "worker" : "other";
+   realm_id_ = state->World().GetWorldId();
+-  context_metadata_ = ContextMetadata(state, context);
++  context_metadata_ = context_limited ? LimitedContextMetadata(state, context) :
++      ContextMetadata(state, context);
+   script_id_ = v8::StackTrace::CurrentScriptId(isolate);
+   base::ListValue parameters;
+   for (int i = 0; i < std::min(parameter_count, info.Length()); ++i)
+@@ -474,7 +553,7 @@
+                       api == "OffscreenCanvasRenderingContext2D.getImageData")) {
+       result = ObserveImageData(isolate, info_.GetReturnValue().Get());
+     } else {
+-      result = extended_ ? ObserveExtended(isolate, info_.GetReturnValue().Get(), sequence) :
++      result = extended_ ? ObserveExtended(isolate, info_.GetReturnValue().Get(), sequence && HasUsableCurrentContext(isolate)) :
+           Observe(isolate, info_.GetReturnValue().Get(), true);
+     }
+   }

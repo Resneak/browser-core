@@ -1,0 +1,258 @@
+diff --git a/services/tracing/public/cpp/startup_tracing_controller.cc b/services/tracing/public/cpp/startup_tracing_controller.cc
+--- a/services/tracing/public/cpp/startup_tracing_controller.cc
++++ b/services/tracing/public/cpp/startup_tracing_controller.cc
+@@ -25,6 +25,7 @@
+ #include "base/task/thread_pool.h"
+ #include "base/thread_annotations.h"
+ #include "base/threading/thread_restrictions.h"
++#include "base/time/time.h"
+ #include "base/trace_event/typed_macros.h"
+ #include "build/blink_buildflags.h"
+ #include "build/build_config.h"
+@@ -66,7 +67,7 @@
+ 
+ class StartupTracingController::BackgroundTracer {
+  public:
+-  enum class WriteMode { kAfterStopping, kStreaming };
++  enum class WriteMode { kAfterStopping, kStreaming, kLivePeriodic };
+ 
+   BackgroundTracer(WriteMode write_mode,
+                    TempFilePolicy temp_file_policy,
+@@ -112,6 +113,22 @@
+     tracing_session_->StartBlocking();
+ 
+     TRACE_EVENT("startup", "StartupTracingController::Start");
++
++    if (write_mode_ == WriteMode::kLivePeriodic) {
++      // This predictable sibling is an explicitly incomplete, append-only live
++      // artifact. Never truncate an existing recording. The completed trace is
++      // published at output_file_ only after the final drain succeeds.
++      written_to_file_ = output_file_.AddExtension(FILE_PATH_LITERAL("live"));
++      file_.Initialize(written_to_file_,
++                       base::File::FLAG_CREATE | base::File::FLAG_WRITE);
++      live_write_failed_ = !file_.IsValid();
++      if (live_write_failed_) {
++        LOG(ERROR) << "Browser Core live trace could not create its artifact";
++        Stop(base::OnceClosure());
++      } else {
++        ScheduleLiveRead();
++      }
++    }
+   }
+ 
+  public:
+@@ -143,6 +160,14 @@
+       return;
+     }
+     state_ = State::kFinalizing;
++    if (write_mode_ == WriteMode::kLivePeriodic) {
++      // Stop may arrive during either a flush or a multi-chunk read. Finish
++      // that operation first, then drain once more after all producers stop.
++      if (!live_read_pending_) {
++        ReadLiveTrace(/*final_read=*/true);
++      }
++      return;
++    }
+ 
+     OpenFile(output_file_);
+ 
+@@ -161,6 +186,86 @@
+   }
+ 
+  private:
++  void ScheduleLiveRead() {
++    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
++    task_runner_->PostDelayedTask(
++        FROM_HERE,
++        base::BindOnce(&BackgroundTracer::FlushLiveTrace,
++                       weak_ptr_factory_.GetWeakPtr()),
++        base::Seconds(1));
++  }
++
++  void FlushLiveTrace() {
++    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
++    if (state_ != State::kTracing || live_read_pending_) {
++      return;
++    }
++    live_read_pending_ = true;
++    tracing_session_->Flush(
++        [runner = task_runner_, weak = weak_ptr_factory_.GetWeakPtr()](bool ok) {
++          runner->PostTask(FROM_HERE,
++                           base::BindOnce(&BackgroundTracer::OnLiveFlushed,
++                                          weak, ok));
++        },
++        /*timeout_ms=*/1000);
++  }
++
++  void OnLiveFlushed(bool complete) {
++    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
++    if (!complete) {
++      // A live prefix may lag a producer. The final read still waits for the
++      // ordinary producer-stop acknowledgement; do not invent missing events.
++      VLOG(1) << "Browser Core live trace flush did not fully acknowledge";
++    }
++    ReadLiveTrace(/*final_read=*/state_ == State::kFinalizing);
++  }
++
++  void ReadLiveTrace(bool final_read) {
++    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
++    if (live_write_failed_ && final_read) {
++      live_read_pending_ = false;
++      Finalise();
++      return;
++    }
++    live_read_pending_ = true;
++    tracing_session_->ReadTrace(
++        [runner = task_runner_, weak = weak_ptr_factory_.GetWeakPtr(),
++         final_read](perfetto::TracingSession::ReadTraceCallbackArgs args) {
++          // Perfetto owns args.data only for this callback, on its own thread.
++          // Transfer the bytes before returning; all file and state access is
++          // serialized on the background runner. One read cycle is outstanding.
++          std::string chunk;
++          if (args.size) {
++            chunk.assign(args.data, args.size);
++          }
++          runner->PostTask(
++              FROM_HERE, base::BindOnce(&BackgroundTracer::OnLiveTraceChunk,
++                                        weak, std::move(chunk), args.has_more,
++                                        final_read));
++        });
++  }
++
++  void OnLiveTraceChunk(std::string chunk, bool has_more, bool final_read) {
++    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
++    if (!live_write_failed_ && !chunk.empty() &&
++        !file_.WriteAtCurrentPosAndCheck(base::as_byte_span(chunk))) {
++      live_write_failed_ = true;
++      LOG(ERROR) << "Browser Core live trace write failed; retaining partial artifact";
++      Stop(base::OnceClosure());
++    }
++    if (has_more) {
++      return;
++    }
++    live_read_pending_ = false;
++    if (final_read) {
++      Finalise();
++    } else if (state_ == State::kFinalizing) {
++      ReadLiveTrace(/*final_read=*/true);
++    } else if (state_ == State::kTracing) {
++      ScheduleLiveRead();
++    }
++  }
++
+   void WriteData(const char* data, size_t size) {
+     // Last chunk can be empty.
+     if (size == 0) {
+@@ -228,6 +333,16 @@
+     DCHECK_NE(state_, State::kFinished);
+     file_.Close();
+ 
++    if (write_mode_ == WriteMode::kLivePeriodic && live_write_failed_) {
++      // Preserve the partial bytes for diagnosis, but never label them as a
++      // completed trace. The launcher/consumer can observe the absent final.
++      state_ = State::kFinished;
++      if (on_tracing_finished_) {
++        std::move(on_tracing_finished_).Run();
++      }
++      return;
++    }
++
+     if (written_to_file_ != output_file_) {
+       base::File::Error error;
+       if (!base::ReplaceFile(written_to_file_, output_file_, &error)) {
+@@ -268,6 +383,8 @@
+   base::FilePath written_to_file_;
+ 
+   base::File file_;
++  bool live_read_pending_ = false;
++  bool live_write_failed_ = false;
+ 
+   const tracing::TraceStartupConfig::OutputFormat output_format_;
+ 
+@@ -506,6 +623,13 @@
+           : BackgroundTracer::WriteMode::kAfterStopping;
+ #endif
+ 
++  const auto* command_line = base::CommandLine::ForCurrentProcess();
++  if (command_line->HasSwitch("browser-core-evaluation") &&
++      command_line->HasSwitch("browser-core-live-trace") &&
++      output_format == tracing::TraceStartupConfig::OutputFormat::kProto) {
++    write_mode = BackgroundTracer::WriteMode::kLivePeriodic;
++  }
++
+   auto perfetto_config =
+       tracing::TraceStartupConfig::GetInstance().GetPerfettoConfig();
+ 
+diff --git a/services/tracing/public/cpp/perfetto/perfetto_tracing_backend.cc b/services/tracing/public/cpp/perfetto/perfetto_tracing_backend.cc
+--- a/services/tracing/public/cpp/perfetto/perfetto_tracing_backend.cc
++++ b/services/tracing/public/cpp/perfetto/perfetto_tracing_backend.cc
+@@ -20,6 +20,7 @@
+ #include "base/unguessable_token.h"
+ #include "build/build_config.h"
+ #include "components/tracing/common/tracing_switches.h"
++#include "mojo/public/cpp/bindings/callback_helpers.h"
+ #include "mojo/public/cpp/bindings/receiver.h"
+ #include "mojo/public/cpp/bindings/remote.h"
+ #include "mojo/public/cpp/system/data_pipe_drainer.h"
+@@ -390,8 +391,18 @@
+              FlushCallback callback,
+              perfetto::FlushFlags) override {
+     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+-    // TODO(skyostil): Implement flushing.
+-    NOTREACHED();
++    if (!tracing_session_host_ || !tracing_session_client_.is_bound()) {
++      callback(false);
++      return;
++    }
++    // Preserve the producer acknowledgement through Chromium's Mojo adapter.
++    // A disconnected session must resolve the pending flush as unsuccessful.
++    tracing_session_host_->Flush(
++        timeout_ms, mojo::WrapCallbackWithDefaultInvokeIfNotRun(
++                        base::BindOnce([](FlushCallback done, bool success) {
++                          done(success);
++                        }, std::move(callback)),
++                        false));
+   }
+ 
+   void ReadBuffers() override {
+diff --git a/services/tracing/public/mojom/perfetto_service.mojom b/services/tracing/public/mojom/perfetto_service.mojom
+--- a/services/tracing/public/mojom/perfetto_service.mojom
++++ b/services/tracing/public/mojom/perfetto_service.mojom
+@@ -314,6 +314,10 @@
+   // streaming proto format via ReadBuffers.
+   DisableTracingAndEmitJson(string agent_label_filter,
+                             handle<data_pipe_producer> stream) => ();
++
++  // Fence producer data before a live read. A timeout returns false; it does
++  // not disable the session or claim that every producer acknowledged.
++  Flush(uint32 timeout_ms) => (bool success);
+ };
+ 
+ // Any client connecting to ConsumerHost should implement this interface which
+diff --git a/services/tracing/perfetto/consumer_host.h b/services/tracing/perfetto/consumer_host.h
+--- a/services/tracing/perfetto/consumer_host.h
++++ b/services/tracing/perfetto/consumer_host.h
+@@ -67,7 +67,7 @@
+     void OnTracingDisabled(const std::string& error);
+     void OnSessionCloned(const OnSessionClonedArgs&);
+     void OnConsumerClientDisconnected();
+-    void Flush(uint32_t timeout, base::OnceCallback<void(bool)> callback);
++    void Flush(uint32_t timeout, base::OnceCallback<void(bool)> callback) override;
+     void CloneSession(const base::UnguessableToken& uuid,
+                       CloneSessionCallback callback);
+ 
+diff --git a/services/tracing/perfetto/consumer_host.cc b/services/tracing/perfetto/consumer_host.cc
+--- a/services/tracing/perfetto/consumer_host.cc
++++ b/services/tracing/perfetto/consumer_host.cc
+@@ -541,6 +541,11 @@
+     uint32_t timeout,
+     base::OnceCallback<void(bool)> callback) {
+   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
++  if (flush_callback_) {
++    // Do not orphan an earlier caller if consumers issue overlapping fences.
++    std::move(callback).Run(false);
++    return;
++  }
+   flush_callback_ = std::move(callback);
+   base::WeakPtr<TracingSession> weak_this = weak_factory_.GetWeakPtr();
+   host_->consumer_endpoint()->Flush(

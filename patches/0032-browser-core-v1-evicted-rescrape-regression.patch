@@ -1,0 +1,134 @@
+diff --git a/src/tracing/service/trace_buffer_v1_unittest.cc b/src/tracing/service/trace_buffer_v1_unittest.cc
+--- a/src/tracing/service/trace_buffer_v1_unittest.cc
++++ b/src/tracing/service/trace_buffer_v1_unittest.cc
+@@ -2180,4 +2180,130 @@
+   EXPECT_EQ(0u, dropped);
+ }
+ 
++
++TEST_F(TraceBufferTest, BrowserCoreEvictedScrapeResumesWithoutDuplicatePackets) {
++  for (ChunkID id : {ChunkID(0), kMaxChunkID}) {
++    ResetBuffer(4096);
++    auto write = [&](int count, bool complete) {
++      auto chunk = CreateChunk(ProducerID(1), WriterID(1), id);
++      for (int i = 0; i < count; ++i)
++        chunk.AddPacket(20, static_cast<char>('a' + i));
++      chunk.PadTo(1008).CopyIntoTraceBuffer(complete);
++    };
++    auto evict = [&] {
++      static ChunkID other = 0;
++      for (int i = 0; i < 4; ++i)
++        CreateChunk(ProducerID(2), WriterID(1), other++)
++            .AddPacket(1008, 'x').CopyIntoTraceBuffer();
++      trace_buffer()->BeginRead();
++      while (!ReadPacket().empty()) {}
++    };
++    write(3, false);
++    trace_buffer()->BeginRead();
++    ASSERT_THAT(ReadPacket(), ElementsAre(FakePacketFragment(20, 'a')));
++    ASSERT_THAT(ReadPacket(), ElementsAre(FakePacketFragment(20, 'b')));
++    ASSERT_THAT(ReadPacket(), IsEmpty());
++    for (int repeat = 0; repeat < 3; ++repeat) {
++      evict();
++      write(3, false);
++      trace_buffer()->BeginRead();
++      ASSERT_THAT(ReadPacket(), IsEmpty()) << "repeat=" << repeat;
++    }
++    evict();
++    write(4, false);
++    trace_buffer()->BeginRead();
++    uint32_t dropped = 1;
++    ASSERT_THAT(ReadPacket(nullptr, &dropped), ElementsAre(FakePacketFragment(20, 'c')));
++    EXPECT_EQ(0u, dropped);
++    ASSERT_THAT(ReadPacket(), IsEmpty());
++    evict();
++    write(4, true);
++    trace_buffer()->BeginRead();
++    ASSERT_THAT(ReadPacket(nullptr, &dropped), ElementsAre(FakePacketFragment(20, 'd')));
++    EXPECT_EQ(0u, dropped);
++    ASSERT_THAT(ReadPacket(), IsEmpty());
++    CreateChunk(ProducerID(1), WriterID(1), id + 1)
++        .AddPacket(20, 'z').CopyIntoTraceBuffer();
++    trace_buffer()->BeginRead();
++    ASSERT_THAT(ReadPacket(nullptr, &dropped), ElementsAre(FakePacketFragment(20, 'z')));
++    EXPECT_EQ(0u, dropped);
++  }
++}
++
++TEST_F(TraceBufferTest, BrowserCoreEvictedPartialReadRecoversOnlyUnreadPackets) {
++  ResetBuffer(4096);
++  auto write = [&] {
++    CreateChunk(ProducerID(1), WriterID(1), ChunkID(0))
++        .AddPacket(20, 'a').AddPacket(20, 'b').AddPacket(20, 'c')
++        .PadTo(1008).CopyIntoTraceBuffer();
++  };
++  write();
++  trace_buffer()->BeginRead();
++  ASSERT_THAT(ReadPacket(), ElementsAre(FakePacketFragment(20, 'a')));
++  for (ChunkID i = 0; i < 4; ++i)
++    CreateChunk(ProducerID(2), WriterID(1), i)
++        .AddPacket(1008, 'x').CopyIntoTraceBuffer();
++  trace_buffer()->BeginRead();
++  while (!ReadPacket().empty()) {}
++  EXPECT_GT(trace_buffer()->stats().chunks_overwritten(), 0u);
++  write();
++  trace_buffer()->BeginRead();
++  ASSERT_THAT(ReadPacket(), ElementsAre(FakePacketFragment(20, 'b')));
++  ASSERT_THAT(ReadPacket(), ElementsAre(FakePacketFragment(20, 'c')));
++  ASSERT_THAT(ReadPacket(), IsEmpty());
++  // Recovering the bytes later does not erase the overwrite counter.
++  EXPECT_GT(trace_buffer()->stats().chunks_overwritten(), 0u);
++}
++
++TEST_F(TraceBufferTest, BrowserCoreEvictedScrapePreservesSkippedPacketWarning) {
++  ResetBuffer(4096);
++  auto write = [&](bool complete) {
++    CreateChunk(ProducerID(1), WriterID(1), ChunkID(0))
++        .AddPacket(20, 'a', kContFromPrevChunk).AddPacket(20, 'b')
++        .PadTo(1008).CopyIntoTraceBuffer(complete);
++  };
++  write(false);
++  trace_buffer()->BeginRead();
++  ASSERT_THAT(ReadPacket(), IsEmpty());
++  for (ChunkID i = 0; i < 4; ++i)
++    CreateChunk(ProducerID(2), WriterID(1), i)
++        .AddPacket(1008, 'x').CopyIntoTraceBuffer();
++  trace_buffer()->BeginRead();
++  while (!ReadPacket().empty()) {}
++  write(true);
++  trace_buffer()->BeginRead();
++  uint32_t dropped = 0;
++  ASSERT_THAT(ReadPacket(nullptr, &dropped), ElementsAre(FakePacketFragment(20, 'b')));
++  EXPECT_NE(0u, dropped);
++  ASSERT_THAT(ReadPacket(), IsEmpty());
++}
++
++TEST_F(TraceBufferTest, BrowserCoreEvictedScrapeCloneKeepsReadPolicy) {
++  ResetBuffer(4096);
++  auto write = [&](int count) {
++    auto chunk = CreateChunk(ProducerID(1), WriterID(1), ChunkID(0));
++    for (int i = 0; i < count; ++i)
++      chunk.AddPacket(20, static_cast<char>('a' + i));
++    chunk.PadTo(1008).CopyIntoTraceBuffer(false);
++  };
++  write(2);
++  trace_buffer()->BeginRead();
++  ASSERT_THAT(ReadPacket(), ElementsAre(FakePacketFragment(20, 'a')));
++  ASSERT_THAT(ReadPacket(), IsEmpty());
++  for (ChunkID i = 0; i < 4; ++i)
++    CreateChunk(ProducerID(2), WriterID(1), i)
++        .AddPacket(1008, 'x').CopyIntoTraceBuffer();
++  trace_buffer()->BeginRead();
++  while (!ReadPacket().empty()) {}
++  write(3);
++  auto cloned = trace_buffer()->CloneReadOnly();
++  cloned->BeginRead();
++  if constexpr (!PERFETTO_FLAGS(BUFFER_CLONE_PRESERVE_READ_ITER))
++    ASSERT_THAT(ReadPacket(cloned), ElementsAre(FakePacketFragment(20, 'a')));
++  ASSERT_THAT(ReadPacket(cloned), ElementsAre(FakePacketFragment(20, 'b')));
++  trace_buffer()->BeginRead();
++  ASSERT_THAT(ReadPacket(), ElementsAre(FakePacketFragment(20, 'b')));
++  ASSERT_THAT(ReadPacket(), IsEmpty());
++}
++
+ }  // namespace perfetto

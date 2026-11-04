@@ -1,0 +1,124 @@
+diff --git a/src/codegen/compiler.cc b/src/codegen/compiler.cc
+--- a/src/codegen/compiler.cc
++++ b/src/codegen/compiler.cc
+@@ -363,6 +363,85 @@ void Compiler::LogFunctionCompilation(Isolate* isolate,
+ 
+ namespace {
+ 
++int BrowserCoreScriptId(Tagged<Object> script_object) {
++  if (!IsScript(script_object)) {
++    return -1;
++  }
++  const int script_id = Cast<Script>(script_object)->id();
++  return script_id >= 0 ? script_id : -1;
++}
++
++// V8's per-context debug ID, assigned by the embedder's inspector for every
++// Blink context (whether or not DevTools is attached). 0 means unassigned.
++int BrowserCoreDebugContextId(Tagged<NativeContext> native_context) {
++  Tagged<Object> value = native_context->debug_context_id();
++  return IsSmi(value) ? Smi::ToInt(value) : 0;
++}
++
++struct BrowserCoreDynamicCaller {
++  int script_id = -1;
++  int context_id = 0;
++};
++
++// The caller context always comes from the same source as the caller
++// ScriptId: the selected stack frame's own native context, or the eval
++// context when the outer function supplies the ScriptId.
++BrowserCoreDynamicCaller BrowserCoreDynamicCallerIdentity(
++    Isolate* isolate, DirectHandle<SharedFunctionInfo> outer_info,
++    DirectHandle<Context> context, bool prefer_stack_caller) {
++  BrowserCoreDynamicCaller stack;
++  DebuggableStackFrameIterator iterator(isolate);
++  if (!iterator.done() && iterator.is_javascript()) {
++    FrameSummary summary = iterator.GetTopValidFrame();
++    stack.script_id = BrowserCoreScriptId(*summary.script());
++    stack.context_id = BrowserCoreDebugContextId(*summary.native_context());
++  }
++  if (prefer_stack_caller && stack.script_id >= 0) {
++    return stack;
++  }
++  const int outer_script_id = BrowserCoreScriptId(outer_info->script());
++  if (outer_script_id >= 0) {
++    return {outer_script_id,
++            BrowserCoreDebugContextId(context->native_context())};
++  }
++  return stack;
++}
++
++void EmitBrowserCoreDynamicCodeMaterialized(
++    Isolate* isolate, DirectHandle<String> source,
++    DirectHandle<SharedFunctionInfo> outer_info, DirectHandle<Context> context,
++    DirectHandle<JSFunction> result, ParseRestriction restriction,
++    int parameters_end_pos, ParsingWhileDebugging parsing_while_debugging,
++    const char* cache_status) {
++  // Debugger expression compilation is control traffic, not page-created
++  // dynamic code. Excluding that compilation prevents the debugger wrapper
++  // itself from becoming evidence; eval/Function calls it executes remain
++  // observable.
++  if (parsing_while_debugging == ParsingWhileDebugging::kYes) {
++    return;
++  }
++  const bool is_function_constructor =
++      restriction == ONLY_SINGLE_FUNCTION_LITERAL &&
++      parameters_end_pos != kNoSourcePosition;
++  const int generated_script_id =
++      BrowserCoreScriptId(result->shared()->script());
++  if (generated_script_id < 0) {
++    return;
++  }
++  const char* dynamic_kind =
++      is_function_constructor ? "function-constructor" : "eval";
++  const BrowserCoreDynamicCaller caller = BrowserCoreDynamicCallerIdentity(
++      isolate, outer_info, context, is_function_constructor);
++  TRACE_EVENT_INSTANT(
++      "browser_core.debug", "BrowserCore.DynamicCodeMaterialized", "schema",
++      "browser-core.native/1", "event_category", "execution", "event_name",
++      "dynamic.code.materialized", "component", "v8.compiler", "dynamic_kind",
++      dynamic_kind, "cache_status", cache_status, "generated_script_id",
++      generated_script_id, "caller_script_id", caller.script_id,
++      "caller_inspector_context_id", caller.context_id, "source_length",
++      source->length());
++}
++
+ ScriptOriginOptions OriginOptionsForEval(
+     Tagged<Object> script, ParsingWhileDebugging parsing_while_debugging) {
+   bool is_shared_cross_origin =
+@@ -3348,6 +3427,9 @@ MaybeDirectHandle<JSFunction> Compiler::GetFunctionFromEval(
+       result->UpdateCode(isolate, *BUILTIN_CODE(isolate, CompileLazy));
+     }
+     result->set_context(*context, kReleaseStore);
++    EmitBrowserCoreDynamicCodeMaterialized(
++        isolate, source, outer_info, context, result, restriction,
++        parameters_end_pos, parsing_while_debugging, "function-cache-hit");
+     return result;
+   }
+ 
+@@ -3453,6 +3535,10 @@ MaybeDirectHandle<JSFunction> Compiler::GetFunctionFromEval(
+   }
+   CHECK(is_compiled_scope.is_compiled());
+ 
++  EmitBrowserCoreDynamicCodeMaterialized(
++      isolate, source, outer_info, context, result, restriction,
++      parameters_end_pos, parsing_while_debugging,
++      eval_result.has_shared() ? "shared-cache-hit" : "compiled");
+   return result;
+ }
+ 
+diff --git a/src/tracing/trace-categories.h b/src/tracing/trace-categories.h
+--- a/src/tracing/trace-categories.h
++++ b/src/tracing/trace-categories.h
+@@ -17,8 +17,8 @@ PERFETTO_DEFINE_TEST_CATEGORY_PREFIXES("v8-cat", "cat", "v8.Test2");
+ // List of categories used by built-in V8 trace events.
+ PERFETTO_DEFINE_CATEGORIES_IN_NAMESPACE_WITH_ATTRS(
+     v8, V8_EXPORT_PRIVATE, perfetto::Category("cppgc"),
+-    perfetto::Category("v8"), perfetto::Category("v8.console"),
+-    perfetto::Category("v8.execute"),
++    perfetto::Category("browser_core.debug"), perfetto::Category("v8"),
++    perfetto::Category("v8.console"), perfetto::Category("v8.execute"),
+     perfetto::Category("v8.memory")
+         .SetDescription("Emits counters related to v8 memory usage."),
+     perfetto::Category("v8.wasm"),

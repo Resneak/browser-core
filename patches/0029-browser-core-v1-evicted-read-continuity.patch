@@ -1,0 +1,175 @@
+diff --git a/src/tracing/service/trace_buffer_v1.cc b/src/tracing/service/trace_buffer_v1.cc
+--- a/src/tracing/service/trace_buffer_v1.cc
++++ b/src/tracing/service/trace_buffer_v1.cc
+@@ -82,6 +82,7 @@
+   wptr_ = begin();
+   index_.clear();
+   last_chunk_id_written_.clear();
++  last_evicted_chunk_.clear();
+   read_iter_ = GetReadIterForSequence(index_.end());
+   return true;
+ }
+@@ -382,6 +383,22 @@
+ 
+   // Remove from the index.
+   for (auto it : index_delete) {
++    const auto& key = it->first;
++    const auto& meta = it->second;
++    auto sequence = std::make_pair(key.producer_id, key.writer_id);
++    auto prior = last_evicted_chunk_.find(sequence);
++    // Physical eviction order can differ from ChunkID order. Apply the same
++    // wrapping comparison used by last_chunk_id_written_. Failed discard
++    // attempts never reach this loop and must not retire a still-live chunk.
++    if (prior == last_evicted_chunk_.end() ||
++        key.chunk_id - prior->second.id < kMaxChunkID / 2) {
++      last_evicted_chunk_.insert_or_assign(
++          sequence, EvictedChunk{key.chunk_id,
++              meta.is_complete() && meta.num_fragments_read > 0 &&
++              meta.num_fragments_read == meta.num_fragments &&
++              !meta.last_read_packet_skipped() &&
++              !(meta.flags & (kChunkNeedsPatching | kLastPacketContinuesOnNextChunk))});
++    }
+     index_.erase(it);
+   }
+   stats_.set_chunks_overwritten(chunks_overwritten);
+@@ -621,8 +638,16 @@
+     // If we didn't read any packets from this chunk, the last packet was from
+     // the previous chunk we iterated over; so don't update
+     // |previous_packet_dropped| in this case.
+-    if (chunk_meta->num_fragments_read > 0)
++    if (chunk_meta->num_fragments_read > 0) {
+       previous_packet_dropped = chunk_meta->last_read_packet_skipped();
++    } else {
++      auto retired = last_evicted_chunk_.find(
++          std::make_pair(trusted_producer_id, writer_id));
++      if (retired != last_evicted_chunk_.end() && retired->second.clean_tail &&
++          retired->second.id + 1 == read_iter_.chunk_id()) {
++        previous_packet_dropped = false;
++      }
++    }
+ 
+     while (chunk_meta->num_fragments_read < chunk_meta->num_fragments) {
+       enum { kSkip = 0, kReadOnePacket, kTryReadAhead } action;
+@@ -940,6 +965,9 @@
+   //    old behavior.
+   // 2. To support properly cloning of write_into_file sessions (b/382209797).
+   index_ = ChunkMap(src.index_);
++  if constexpr (PERFETTO_FLAGS(BUFFER_CLONE_PRESERVE_READ_ITER)) {
++    last_evicted_chunk_ = src.last_evicted_chunk_;
++  }
+   if constexpr (!PERFETTO_FLAGS(BUFFER_CLONE_PRESERVE_READ_ITER)) {
+     for (auto& kv : index_) {
+       ChunkMeta& chunk_meta = kv.second;
+diff --git a/src/tracing/service/trace_buffer_v1.h b/src/tracing/service/trace_buffer_v1.h
+--- a/src/tracing/service/trace_buffer_v1.h
++++ b/src/tracing/service/trace_buffer_v1.h
+@@ -691,6 +691,15 @@
+   // many producers/writers within the same trace session).
+   std::map<std::pair<ProducerID, WriterID>, ChunkID> last_chunk_id_written_;
+ 
++  // Last evicted chunk per existing writer sequence. A fully consumed,
++  // complete, uncorrupted tail proves continuity to its exact successor even
++  // after all old chunks have left the ring. No payload bytes are retained.
++  struct EvictedChunk {
++    ChunkID id;
++    bool clean_tail;
++  };
++  std::map<std::pair<ProducerID, WriterID>, EvictedChunk> last_evicted_chunk_;
++
+   // Statistics about buffer usage.
+   TraceStats::BufferStats stats_;
+ 
+diff --git a/src/tracing/service/trace_buffer_v1_unittest.cc b/src/tracing/service/trace_buffer_v1_unittest.cc
+--- a/src/tracing/service/trace_buffer_v1_unittest.cc
++++ b/src/tracing/service/trace_buffer_v1_unittest.cc
+@@ -1889,10 +1889,9 @@
+   trace_buffer()->BeginRead();
+   ASSERT_THAT(ReadPacket(nullptr, &previous_packet_dropped),
+               ElementsAre(FakePacketFragment(10, 'z')));
+-  // We've lost any state from the second producer's sequence because all its
+-  // previous chunks were removed from the buffer due to the two large chunks.
+-  // So the buffer can't be sure that no packets were dropped.
+-  ASSERT_TRUE(previous_packet_dropped);
++  // All earlier chunks were evicted, but the last complete chunk was fully
++  // read. Its retained identity proves that this is the exact successor.
++  ASSERT_FALSE(previous_packet_dropped);
+ }
+ 
+ // This test covers only the old behavior of CloneReadOnly() which used to reset
+@@ -2105,4 +2104,76 @@
+   ASSERT_TRUE(is_only_first_page_mapped(*snap));
+ }
+ 
++
++TEST_F(TraceBufferTest, BrowserCoreEvictedCleanTailAndChunkIdWrap) {
++  for (ChunkID id : {ChunkID(0), kMaxChunkID}) {
++    ResetBuffer(4096);
++    CreateChunk(ProducerID(1), WriterID(1), id).AddPacket(20, 'a').CopyIntoTraceBuffer();
++    trace_buffer()->BeginRead();
++    ASSERT_THAT(ReadPacket(), ElementsAre(FakePacketFragment(20, 'a')));
++    ASSERT_THAT(ReadPacket(), IsEmpty());
++    for (ChunkID i = 0; i < 4; ++i)
++      CreateChunk(ProducerID(2), WriterID(1), i).AddPacket(1008, 'x').CopyIntoTraceBuffer();
++    trace_buffer()->BeginRead();
++    while (!ReadPacket().empty()) {}
++    CreateChunk(ProducerID(1), WriterID(1), id + 1).AddPacket(20, 'b').CopyIntoTraceBuffer();
++    trace_buffer()->BeginRead();
++    uint32_t dropped = 1;
++    ASSERT_THAT(ReadPacket(nullptr, &dropped), ElementsAre(FakePacketFragment(20, 'b')));
++    EXPECT_EQ(0u, dropped);
++    ASSERT_THAT(ReadPacket(), IsEmpty());
++  }
++}
++
++TEST_F(TraceBufferTest, BrowserCoreEvictedUncertainTailsAndGapsStillReportLoss) {
++  // An unread packet, unfinished scrape, corrupt tail, missing chunk or
++  // incomplete fragment must never receive the clean-tail exemption.
++  for (int kind = 0; kind < 5; ++kind) {
++    ResetBuffer(4096);
++    auto chunk = CreateChunk(ProducerID(1), WriterID(1), ChunkID(0));
++    chunk.AddPacket(20, 'a');
++    if (kind == 0 || kind == 1) chunk.AddPacket(20, 'c');
++    if (kind == 2) chunk.AddPacket(20, 'c').ClearBytes(20, 1);
++    if (kind == 4) chunk.AddPacket(20, 'c', kContOnNextChunk);
++    chunk.CopyIntoTraceBuffer(/*chunk_complete=*/kind != 1);
++    trace_buffer()->BeginRead();
++    ASSERT_THAT(ReadPacket(), ElementsAre(FakePacketFragment(20, 'a')));
++    if (kind == 2) { SuppressClientDchecksForTesting(); ASSERT_THAT(ReadPacket(), IsEmpty()); }
++    for (ChunkID i = 0; i < 4; ++i)
++      CreateChunk(ProducerID(2), WriterID(1), i).AddPacket(1008, 'x').CopyIntoTraceBuffer();
++    trace_buffer()->BeginRead();
++    while (!ReadPacket().empty()) {}
++    CreateChunk(ProducerID(1), WriterID(1), ChunkID(kind == 3 ? 2 : 1))
++        .AddPacket(20, 'b').CopyIntoTraceBuffer();
++    trace_buffer()->BeginRead();
++    uint32_t dropped = 0;
++    ASSERT_THAT(ReadPacket(nullptr, &dropped), ElementsAre(FakePacketFragment(20, 'b')));
++    EXPECT_NE(0u, dropped) << "kind=" << kind;
++  }
++}
++
++TEST_F(TraceBufferTest, BrowserCoreEvictionHistoryUsesSequenceOrderAndClonePolicy) {
++  ResetBuffer(4096);
++  // Physical order is reversed; reading and retained history follow ChunkID.
++  CreateChunk(ProducerID(1), WriterID(1), ChunkID(2)).AddPacket(20, 'b').CopyIntoTraceBuffer();
++  CreateChunk(ProducerID(1), WriterID(1), ChunkID(1)).AddPacket(20, 'a').CopyIntoTraceBuffer();
++  trace_buffer()->BeginRead();
++  ASSERT_THAT(ReadPacket(), ElementsAre(FakePacketFragment(20, 'a')));
++  ASSERT_THAT(ReadPacket(), ElementsAre(FakePacketFragment(20, 'b')));
++  ASSERT_THAT(ReadPacket(), IsEmpty());
++  for (ChunkID i = 0; i < 4; ++i)
++    CreateChunk(ProducerID(2), WriterID(1), i).AddPacket(1008, 'x').CopyIntoTraceBuffer();
++  trace_buffer()->BeginRead();
++  while (!ReadPacket().empty()) {}
++  CreateChunk(ProducerID(1), WriterID(1), ChunkID(3)).AddPacket(20, 'c').CopyIntoTraceBuffer();
++  auto cloned = trace_buffer()->CloneReadOnly();
++  cloned->BeginRead();
++  uint32_t dropped = 1;
++  ASSERT_THAT(ReadPacket(cloned, nullptr, &dropped), ElementsAre(FakePacketFragment(20, 'c')));
++  EXPECT_EQ(!PERFETTO_FLAGS(BUFFER_CLONE_PRESERVE_READ_ITER), !!dropped);
++  trace_buffer()->BeginRead();
++  ASSERT_THAT(ReadPacket(nullptr, &dropped), ElementsAre(FakePacketFragment(20, 'c')));
++  EXPECT_EQ(0u, dropped);
++}
++
+ }  // namespace perfetto

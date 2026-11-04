@@ -1,0 +1,294 @@
+diff --git a/third_party/blink/renderer/core/streams/readable_stream_byob_reader.cc b/third_party/blink/renderer/core/streams/readable_stream_byob_reader.cc
+index 4a73dfa7cb..2d3ad101ba 100644
+--- a/third_party/blink/renderer/core/streams/readable_stream_byob_reader.cc
++++ b/third_party/blink/renderer/core/streams/readable_stream_byob_reader.cc
+@@ -4,10 +4,17 @@
+ 
+ #include "third_party/blink/renderer/core/streams/readable_stream_byob_reader.h"
+ 
++#include <string>
++#include <utility>
++
++#include "base/strings/strcat.h"
++#include "base/strings/string_number_conversions.h"
++#include "base/trace_event/trace_event.h"
+ #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
+ #include "third_party/blink/renderer/bindings/core/v8/to_v8_traits.h"
+ #include "third_party/blink/renderer/bindings/core/v8/v8_readable_stream_byob_reader_read_options.h"
+ #include "third_party/blink/renderer/bindings/core/v8/v8_readable_stream_read_result.h"
++#include "third_party/blink/renderer/core/execution_context/execution_context.h"
+ #include "third_party/blink/renderer/core/streams/read_into_request.h"
+ #include "third_party/blink/renderer/core/streams/readable_byte_stream_controller.h"
+ #include "third_party/blink/renderer/core/streams/readable_stream.h"
+@@ -18,6 +25,7 @@
+ #include "third_party/blink/renderer/platform/bindings/v8_binding.h"
+ #include "third_party/blink/renderer/platform/bindings/v8_throw_exception.h"
+ #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
++#include "v8/include/v8-debug.h"
+ 
+ namespace blink {
+ 
+@@ -25,12 +33,19 @@ class ReadableStreamBYOBReader::BYOBReaderReadIntoRequest final
+     : public ReadIntoRequest {
+  public:
+   explicit BYOBReaderReadIntoRequest(
+-      ScriptPromiseResolver<ReadableStreamReadResult>* resolver)
+-      : resolver_(resolver) {}
++      ScriptPromiseResolver<ReadableStreamReadResult>* resolver,
++      std::string context_id,
++      std::string context_kind,
++      std::string read_native_id)
++      : resolver_(resolver),
++        context_id_(std::move(context_id)),
++        context_kind_(std::move(context_kind)),
++        read_native_id_(std::move(read_native_id)) {}
+ 
+   void ChunkSteps(ScriptState* script_state,
+                   DOMArrayBufferView* chunk,
+                   ExceptionState& exception_state) const override {
++    EmitResult("chunk", "bytes", chunk->byteLength());
+     auto* read_result = ReadableStreamReadResult::Create();
+     read_result->setValue(
+         ScriptValue(script_state->GetIsolate(),
+@@ -41,6 +56,8 @@ class ReadableStreamBYOBReader::BYOBReaderReadIntoRequest final
+ 
+   void CloseSteps(ScriptState* script_state,
+                   DOMArrayBufferView* chunk) const override {
++    EmitResult("closed", chunk ? "bytes" : "none",
++               chunk ? chunk->byteLength() : 0u);
+     auto* read_result = ReadableStreamReadResult::Create();
+     read_result->setValue(ScriptValue(
+         script_state->GetIsolate(),
+@@ -52,6 +69,7 @@ class ReadableStreamBYOBReader::BYOBReaderReadIntoRequest final
+   }
+ 
+   void ErrorSteps(ScriptState*, v8::Local<v8::Value> e) const override {
++    EmitResult("error", "none", 0u);
+     resolver_->Reject(e);
+   }
+ 
+@@ -61,7 +79,28 @@ class ReadableStreamBYOBReader::BYOBReaderReadIntoRequest final
+   }
+ 
+  private:
++  void EmitResult(const char* result_kind,
++                  const char* chunk_value_type,
++                  size_t chunk_bytes) const {
++    if (read_native_id_.empty()) {
++      return;
++    }
++    const std::string result_native_id =
++        base::StrCat({read_native_id_, ":result"});
++    TRACE_EVENT_INSTANT(
++        "browser_core.stream", "BrowserCore.StreamReadResult", "schema",
++        "browser-core.native/1", "event_category", "stream", "event_name",
++        "stream.read.result", "component", "blink.streams", "context_id",
++        context_id_, "context_kind", context_kind_, "native_id",
++        result_native_id, "native_parent_id", read_native_id_, "reader_mode",
++        "byob", "result_kind", result_kind, "chunk_value_type",
++        chunk_value_type, "chunk_bytes", chunk_bytes);
++  }
++
+   Member<ScriptPromiseResolver<ReadableStreamReadResult>> resolver_;
++  const std::string context_id_;
++  const std::string context_kind_;
++  const std::string read_native_id_;
+ };
+ 
+ ReadableStreamBYOBReader* ReadableStreamBYOBReader::Create(
+@@ -168,6 +207,37 @@ ScriptPromise<ReadableStreamReadResult> ReadableStreamBYOBReader::read(
+       MakeGarbageCollected<ScriptPromiseResolver<ReadableStreamReadResult>>(
+           script_state, exception_state.GetContext());
+ 
++  std::string context_id;
++  std::string context_kind;
++  std::string read_native_id;
++  if (TRACE_EVENT_CATEGORY_ENABLED("browser_core.stream")) {
++    ExecutionContext* execution_context = ExecutionContext::From(script_state);
++    context_id = execution_context->GetExecutionContextToken().ToString();
++    const int script_id =
++        v8::StackTrace::CurrentScriptId(script_state->GetIsolate());
++    const int operation_id = execution_context->CircularSequentialID();
++    read_native_id = base::StrCat(
++        {"stream-read:", context_id, ":", base::NumberToString(operation_id)});
++    const std::string script_native_id =
++        script_id < 0 ? std::string()
++                      : base::StrCat({"script:", context_id, ":",
++                                      base::NumberToString(script_id)});
++    context_kind =
++        execution_context->IsWindow()
++            ? "frame"
++            : (execution_context->IsWorkerGlobalScope()
++                   ? "worker"
++                   : (execution_context->IsWorkletGlobalScope() ? "worklet"
++                                                                : "other"));
++    TRACE_EVENT_INSTANT("browser_core.stream", "BrowserCore.StreamReadRequest",
++                        "schema", "browser-core.native/1", "event_category",
++                        "stream", "event_name", "stream.read.request",
++                        "component", "blink.streams", "context_id", context_id,
++                        "context_kind", context_kind, "script_id", script_id,
++                        "native_id", read_native_id, "native_parent_id",
++                        script_native_id, "reader_mode", "byob");
++  }
++
+   // resolver may be GC'ed before underlying read completes if reader and stream
+   // are released.
+   resolver->SuppressDetachCheck();
+@@ -179,8 +249,8 @@ ScriptPromise<ReadableStreamReadResult> ReadableStreamBYOBReader::read(
+   //      1. Resolve promise with «[ "value" → chunk, "done" → true ]».
+   //    error steps, given e
+   //      1. Reject promise with e.
+-  auto* read_into_request =
+-      MakeGarbageCollected<BYOBReaderReadIntoRequest>(resolver);
++  auto* read_into_request = MakeGarbageCollected<BYOBReaderReadIntoRequest>(
++      resolver, context_id, context_kind, read_native_id);
+ 
+   // 10. Perform ! ReadableStreamBYOBReaderRead(this, view, min,
+   //     readIntoRequest).
+diff --git a/third_party/blink/renderer/core/streams/readable_stream_default_reader.cc b/third_party/blink/renderer/core/streams/readable_stream_default_reader.cc
+index 85d7345aef..d0b44e0ff2 100644
+--- a/third_party/blink/renderer/core/streams/readable_stream_default_reader.cc
++++ b/third_party/blink/renderer/core/streams/readable_stream_default_reader.cc
+@@ -4,6 +4,12 @@
+ 
+ #include "third_party/blink/renderer/core/streams/readable_stream_default_reader.h"
+ 
++#include <string>
++#include <utility>
++
++#include "base/strings/strcat.h"
++#include "base/strings/string_number_conversions.h"
++#include "base/trace_event/trace_event.h"
+ #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
+ #include "third_party/blink/renderer/bindings/core/v8/v8_readable_stream_read_result.h"
+ #include "third_party/blink/renderer/core/execution_context/execution_context.h"
+@@ -13,6 +19,7 @@
+ #include "third_party/blink/renderer/platform/bindings/exception_state.h"
+ #include "third_party/blink/renderer/platform/bindings/script_state.h"
+ #include "third_party/blink/renderer/platform/bindings/v8_throw_exception.h"
++#include "v8/include/v8-debug.h"
+ 
+ namespace blink {
+ 
+@@ -20,12 +27,26 @@ class ReadableStreamDefaultReader::DefaultReaderReadRequest final
+     : public ReadRequest {
+  public:
+   explicit DefaultReaderReadRequest(
+-      ScriptPromiseResolver<ReadableStreamReadResult>* resolver)
+-      : resolver_(resolver) {}
++      ScriptPromiseResolver<ReadableStreamReadResult>* resolver,
++      std::string context_id,
++      std::string context_kind,
++      std::string read_native_id)
++      : resolver_(resolver),
++        context_id_(std::move(context_id)),
++        context_kind_(std::move(context_kind)),
++        read_native_id_(std::move(read_native_id)) {}
+ 
+   void ChunkSteps(ScriptState* script_state,
+                   v8::Local<v8::Value> chunk,
+                   ExceptionState&) const override {
++    const bool is_bytes = chunk->IsArrayBufferView() || chunk->IsArrayBuffer();
++    const size_t chunk_bytes =
++        chunk->IsArrayBufferView()
++            ? chunk.As<v8::ArrayBufferView>()->ByteLength()
++            : (chunk->IsArrayBuffer()
++                   ? chunk.As<v8::ArrayBuffer>()->ByteLength()
++                   : 0u);
++    EmitResult("chunk", is_bytes ? "bytes" : "other", chunk_bytes);
+     auto* read_result = ReadableStreamReadResult::Create();
+     read_result->setValue(ScriptValue(script_state->GetIsolate(), chunk));
+     read_result->setDone(false);
+@@ -33,6 +54,7 @@ class ReadableStreamDefaultReader::DefaultReaderReadRequest final
+   }
+ 
+   void CloseSteps(ScriptState* script_state) const override {
++    EmitResult("closed", "none", 0u);
+     auto* read_result = ReadableStreamReadResult::Create();
+     read_result->setValue(ScriptValue(
+         script_state->GetIsolate(), v8::Undefined(script_state->GetIsolate())));
+@@ -41,6 +63,7 @@ class ReadableStreamDefaultReader::DefaultReaderReadRequest final
+   }
+ 
+   void ErrorSteps(ScriptState*, v8::Local<v8::Value> e) const override {
++    EmitResult("error", "none", 0u);
+     resolver_->Reject(e);
+   }
+ 
+@@ -50,7 +73,28 @@ class ReadableStreamDefaultReader::DefaultReaderReadRequest final
+   }
+ 
+  private:
++  void EmitResult(const char* result_kind,
++                  const char* chunk_value_type,
++                  size_t chunk_bytes) const {
++    if (read_native_id_.empty()) {
++      return;
++    }
++    const std::string result_native_id =
++        base::StrCat({read_native_id_, ":result"});
++    TRACE_EVENT_INSTANT(
++        "browser_core.stream", "BrowserCore.StreamReadResult", "schema",
++        "browser-core.native/1", "event_category", "stream", "event_name",
++        "stream.read.result", "component", "blink.streams", "context_id",
++        context_id_, "context_kind", context_kind_, "native_id",
++        result_native_id, "native_parent_id", read_native_id_, "reader_mode",
++        "default", "result_kind", result_kind, "chunk_value_type",
++        chunk_value_type, "chunk_bytes", chunk_bytes);
++  }
++
+   Member<ScriptPromiseResolver<ReadableStreamReadResult>> resolver_;
++  const std::string context_id_;
++  const std::string context_kind_;
++  const std::string read_native_id_;
+ };
+ 
+ ReadableStreamDefaultReader* ReadableStreamDefaultReader::Create(
+@@ -104,6 +148,37 @@ ScriptPromise<ReadableStreamReadResult> ReadableStreamDefaultReader::read(
+       MakeGarbageCollected<ScriptPromiseResolver<ReadableStreamReadResult>>(
+           script_state, exception_state.GetContext());
+ 
++  std::string context_id;
++  std::string context_kind;
++  std::string read_native_id;
++  if (TRACE_EVENT_CATEGORY_ENABLED("browser_core.stream")) {
++    ExecutionContext* execution_context = ExecutionContext::From(script_state);
++    context_id = execution_context->GetExecutionContextToken().ToString();
++    const int script_id =
++        v8::StackTrace::CurrentScriptId(script_state->GetIsolate());
++    const int operation_id = execution_context->CircularSequentialID();
++    read_native_id = base::StrCat(
++        {"stream-read:", context_id, ":", base::NumberToString(operation_id)});
++    const std::string script_native_id =
++        script_id < 0 ? std::string()
++                      : base::StrCat({"script:", context_id, ":",
++                                      base::NumberToString(script_id)});
++    context_kind =
++        execution_context->IsWindow()
++            ? "frame"
++            : (execution_context->IsWorkerGlobalScope()
++                   ? "worker"
++                   : (execution_context->IsWorkletGlobalScope() ? "worklet"
++                                                                : "other"));
++    TRACE_EVENT_INSTANT("browser_core.stream", "BrowserCore.StreamReadRequest",
++                        "schema", "browser-core.native/1", "event_category",
++                        "stream", "event_name", "stream.read.request",
++                        "component", "blink.streams", "context_id", context_id,
++                        "context_kind", context_kind, "script_id", script_id,
++                        "native_id", read_native_id, "native_parent_id",
++                        script_native_id, "reader_mode", "default");
++  }
++
+   // 3. Let readRequest be a new read request with the following items:
+   //    chunk steps, given chunk
+   //      1. Resolve promise with «[ "value" → chunk, "done" → false ]».
+@@ -111,7 +186,8 @@ ScriptPromise<ReadableStreamReadResult> ReadableStreamDefaultReader::read(
+   //      1. Resolve promise with «[ "value" → undefined, "done" → true ]».
+   //    error steps, given e
+   //      1. Reject promise with e.
+-  auto* read_request = MakeGarbageCollected<DefaultReaderReadRequest>(resolver);
++  auto* read_request = MakeGarbageCollected<DefaultReaderReadRequest>(
++      resolver, context_id, context_kind, read_native_id);
+ 
+   // 4. Perform ! ReadableStreamReaderRead(this).
+   Read(script_state, this, read_request, exception_state);

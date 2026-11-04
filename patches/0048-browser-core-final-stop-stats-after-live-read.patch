@@ -1,0 +1,121 @@
+diff --git a/third_party/perfetto/src/tracing/service/tracing_service_impl.cc b/third_party/perfetto/src/tracing/service/tracing_service_impl.cc
+--- a/third_party/perfetto/src/tracing/service/tracing_service_impl.cc
++++ b/third_party/perfetto/src/tracing/service/tracing_service_impl.cc
+@@ -2100,9 +2100,11 @@
+       protos::pbzero::TracingServiceEvent::kTracingDisabledFieldNumber,
+       true /* snapshot_clocks */);
+ 
++  // Live readers may have consumed the previous snapshot before stopping.
++  // Publish final statistics for both streaming and file-backed consumers.
++  tracing_session->should_emit_stats = true;
+   if (tracing_session->write_into_file) {
+     tracing_session->write_period_ms = 0;
+-    tracing_session->should_emit_stats = true;
+     // Buffers are scraped, no need to flush before reading into file.
+     ReadBuffersIntoFile(tracing_session->id,
+                         /* async_flush_buffers_before_read = */ false);
+diff --git a/third_party/perfetto/src/tracing/service/tracing_service_impl_unittest.cc b/third_party/perfetto/src/tracing/service/tracing_service_impl_unittest.cc
+--- a/third_party/perfetto/src/tracing/service/tracing_service_impl_unittest.cc
++++ b/third_party/perfetto/src/tracing/service/tracing_service_impl_unittest.cc
+@@ -4269,6 +4269,101 @@
+   const auto packets = consumer->ReadBuffers();
+   const protos::gen::TraceStats* final_stats = nullptr;
+   for (const auto& packet : packets) {
++    if (packet.has_trace_stats())
++      final_stats = &packet.trace_stats();
++  }
++  ASSERT_NE(final_stats, nullptr);
++  EXPECT_EQ(final_stats->data_source_stop_timeouts(), 1u);
++}
++
++// A live read must not consume the final stop-outcome statistics.
++TEST_F(TracingServiceImplTest, OnTracingDisabledAfterLiveReadAcknowledged) {
++  std::unique_ptr<MockConsumer> consumer = CreateMockConsumer();
++  consumer->Connect(svc.get());
++  std::unique_ptr<MockProducer> producer = CreateMockProducer();
++  producer->Connect(svc.get(), "mock_producer");
++  producer->RegisterDataSource("data_source", /*ack_stop=*/true);
++
++  TraceConfig trace_config;
++  trace_config.add_buffers()->set_size_kb(128);
++  trace_config.add_data_sources()->mutable_config()->set_name("data_source");
++
++  consumer->EnableTracing(trace_config);
++  producer->WaitForTracingSetup();
++  producer->WaitForDataSourceSetup("data_source");
++  producer->WaitForDataSourceStart("data_source");
++
++  const auto live_packets = consumer->ReadBuffers();
++  const protos::gen::TraceStats* live_stats = nullptr;
++  for (const auto& packet : live_packets) {
++    if (packet.has_trace_stats())
++      live_stats = &packet.trace_stats();
++  }
++  ASSERT_NE(live_stats, nullptr);
++  EXPECT_EQ(live_stats->data_source_stop_timeouts(), 0u);
++  const auto stopped_id = producer->GetDataSourceInstanceId("data_source");
++  ASSERT_NE(stopped_id, 0u);
++
++  consumer->DisableTracing();
++  producer->WaitForDataSourceStop("data_source");
++  producer->endpoint()->NotifyDataSourceStopped(stopped_id);
++  consumer->WaitForTracingDisabled();
++
++  consumer->GetTraceStats();
++  const auto rpc_stats = consumer->WaitForTraceStats(true);
++  EXPECT_EQ(rpc_stats.data_source_stop_timeouts(), 0u);
++
++  const auto final_packets = consumer->ReadBuffers();
++  const protos::gen::TraceStats* final_stats = nullptr;
++  for (const auto& packet : final_packets) {
++    if (packet.has_trace_stats())
++      final_stats = &packet.trace_stats();
++  }
++  ASSERT_NE(final_stats, nullptr);
++  EXPECT_EQ(final_stats->data_source_stop_timeouts(), 0u);
++}
++
++// A live read must not consume the final stop-outcome statistics.
++TEST_F(TracingServiceImplTest, OnTracingDisabledAfterLiveReadTimeout) {
++  std::unique_ptr<MockConsumer> consumer = CreateMockConsumer();
++  consumer->Connect(svc.get());
++  std::unique_ptr<MockProducer> producer = CreateMockProducer();
++  producer->Connect(svc.get(), "mock_producer");
++  producer->RegisterDataSource("data_source", /*ack_stop=*/true);
++
++  TraceConfig trace_config;
++  trace_config.add_buffers()->set_size_kb(128);
++  trace_config.add_data_sources()->mutable_config()->set_name("data_source");
++  trace_config.set_data_source_stop_timeout_ms(1);
++  consumer->EnableTracing(trace_config);
++  producer->WaitForTracingSetup();
++  producer->WaitForDataSourceSetup("data_source");
++  producer->WaitForDataSourceStart("data_source");
++
++  const auto live_packets = consumer->ReadBuffers();
++  const protos::gen::TraceStats* live_stats = nullptr;
++  for (const auto& packet : live_packets) {
++    if (packet.has_trace_stats())
++      live_stats = &packet.trace_stats();
++  }
++  ASSERT_NE(live_stats, nullptr);
++  EXPECT_EQ(live_stats->data_source_stop_timeouts(), 0u);
++  const auto stopped_id = producer->GetDataSourceInstanceId("data_source");
++  ASSERT_NE(stopped_id, 0u);
++
++  consumer->DisableTracing();
++  producer->WaitForDataSourceStop("data_source");
++
++  consumer->WaitForTracingDisabled();
++  // A late acknowledgement must preserve the timeout outcome.
++  producer->endpoint()->NotifyDataSourceStopped(stopped_id);
++  consumer->GetTraceStats();
++  const auto rpc_stats = consumer->WaitForTraceStats(true);
++  EXPECT_EQ(rpc_stats.data_source_stop_timeouts(), 1u);
++
++  const auto final_packets = consumer->ReadBuffers();
++  const protos::gen::TraceStats* final_stats = nullptr;
++  for (const auto& packet : final_packets) {
+     if (packet.has_trace_stats())
+       final_stats = &packet.trace_stats();
+   }

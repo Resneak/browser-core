@@ -1,0 +1,235 @@
+diff --git a/third_party/blink/renderer/core/scheduler/task_attribution_tracker_impl.cc b/third_party/blink/renderer/core/scheduler/task_attribution_tracker_impl.cc
+index 7cd840df9f..54d27df5c4 100644
+--- a/third_party/blink/renderer/core/scheduler/task_attribution_tracker_impl.cc
++++ b/third_party/blink/renderer/core/scheduler/task_attribution_tracker_impl.cc
+@@ -4,8 +4,11 @@
+ 
+ #include "third_party/blink/renderer/core/scheduler/task_attribution_tracker_impl.h"
+ 
++#include <array>
++#include <cstddef>
+ #include <memory>
+ #include <optional>
++#include <string>
+ #include <utility>
+ 
+ #include "base/feature_list.h"
+@@ -95,6 +98,93 @@ void EndBlinkTaskStateTrace() {
+   TRACE_EVENT_END(TaskAttributionTracker::kTracingCategory);
+ }
+ 
++constexpr size_t kBrowserCorePromiseTraceDepthLimit = 1024;
++
++struct BrowserCorePromiseTraceStack {
++  std::array<bool, kBrowserCorePromiseTraceDepthLimit> emitted = {};
++  size_t depth = 0;
++  size_t overflow_depth = 0;
++};
++
++constinit thread_local BrowserCorePromiseTraceStack
++    g_browser_core_promise_trace_stack;
++
++bool IsBrowserCorePromiseTracingEnabled() {
++  return TRACE_EVENT_CATEGORY_ENABLED("browser_core.debug");
++}
++
++bool ShouldInstallPromiseHook() {
++  return IsBrowserCorePromiseTracingEnabled() ||
++         (base::FeatureList::IsEnabled(
++              features::kTaskAttributionTraceMicrotaskTaskState) &&
++          TaskAttributionTracker::IsTracingCategoryEnabled());
++}
++
++bool BeginBrowserCorePromiseMicrotaskTrace() {
++  v8::Isolate* isolate = v8::Isolate::GetCurrent();
++  if (!isolate || !isolate->InContext()) {
++    return false;
++  }
++  ScriptState* script_state =
++      ScriptState::MaybeFrom(isolate, isolate->GetCurrentContext());
++  if (!script_state || !script_state->ContextIsValid()) {
++    return false;
++  }
++  ExecutionContext* execution_context = ExecutionContext::From(script_state);
++  if (!execution_context) {
++    return false;
++  }
++  const std::string context_id =
++      execution_context->GetExecutionContextToken().ToString();
++  const char* context_kind =
++      execution_context->IsWindow()
++          ? "frame"
++          : (execution_context->IsWorkerGlobalScope() ? "worker" : "other");
++  TRACE_EVENT_BEGIN(
++      "browser_core.debug", "BrowserCore.PromiseMicrotaskExecution",
++      [&](perfetto::EventContext event) {
++        event.AddDebugAnnotation("schema", "browser-core.native/1");
++        event.AddDebugAnnotation("event_category", "execution");
++        event.AddDebugAnnotation("event_name", "promise.microtask.execution");
++        event.AddDebugAnnotation("component", "blink.scheduler.promise");
++        event.AddDebugAnnotation("context_id", context_id);
++        event.AddDebugAnnotation("context_kind", context_kind);
++      });
++  return true;
++}
++
++bool HasBrowserCorePromiseTraceStack() {
++  return g_browser_core_promise_trace_stack.depth != 0 ||
++         g_browser_core_promise_trace_stack.overflow_depth != 0;
++}
++
++void BeginTrackedBrowserCorePromiseMicrotask(bool enabled) {
++  if (g_browser_core_promise_trace_stack.overflow_depth != 0 ||
++      g_browser_core_promise_trace_stack.depth ==
++          kBrowserCorePromiseTraceDepthLimit) {
++    ++g_browser_core_promise_trace_stack.overflow_depth;
++    return;
++  }
++  g_browser_core_promise_trace_stack
++      .emitted[g_browser_core_promise_trace_stack.depth++] =
++      enabled && BeginBrowserCorePromiseMicrotaskTrace();
++}
++
++void EndBrowserCorePromiseMicrotaskTrace() {
++  if (g_browser_core_promise_trace_stack.overflow_depth != 0) {
++    --g_browser_core_promise_trace_stack.overflow_depth;
++    return;
++  }
++  if (g_browser_core_promise_trace_stack.depth == 0) {
++    return;
++  }
++  const bool emitted = g_browser_core_promise_trace_stack
++                           .emitted[--g_browser_core_promise_trace_stack.depth];
++  if (emitted) {
++    TRACE_EVENT_END("browser_core.debug");
++  }
++}
++
+ void TaskAttributionPromiseHook(v8::PromiseHookType type,
+                                 v8::Local<v8::Promise> promise,
+                                 v8::Local<v8::Value> parent) {
+@@ -103,7 +193,12 @@ void TaskAttributionPromiseHook(v8::PromiseHookType type,
+         TaskAttributionTaskState::GetCurrent(v8::Isolate::GetCurrent()),
+         /*previous_task_state=*/nullptr,
+         TaskAttributionTracker::TaskScopeType::kMicrotask);
++    const bool browser_core_enabled = IsBrowserCorePromiseTracingEnabled();
++    if (browser_core_enabled || HasBrowserCorePromiseTraceStack()) {
++      BeginTrackedBrowserCorePromiseMicrotask(browser_core_enabled);
++    }
+   } else if (type == v8::PromiseHookType::kAfter) {
++    EndBrowserCorePromiseMicrotaskTrace();
+     EndBlinkTaskStateTrace();
+   }
+ }
+@@ -119,29 +214,21 @@ std::unique_ptr<TaskAttributionTracker> TaskAttributionTrackerImpl::Create(
+ TaskAttributionTrackerImpl::TaskAttributionTrackerImpl(v8::Isolate* isolate)
+     : isolate_(isolate) {
+   CHECK(isolate_);
+-  if (base::FeatureList::IsEnabled(
+-          features::kTaskAttributionTraceMicrotaskTaskState)) {
+-    // Register a tracing state observer unless we're running in a test without
+-    // a task runner. Also note that setting the promise hook must be done on
+-    // the main thread, since otherwise the `isolate_` might not be the current
+-    // isolate, so we need to use an async observer.
+-    if (base::SingleThreadTaskRunner::HasCurrentDefault()) {
+-      trace_event::AddTraceSessionObserver(this);
+-    }
+-    // If tracing was already enabled, we won't get a callback, so check if we
+-    // need to register the promise hook.
+-    if (IsTracingCategoryEnabled()) {
+-      isolate_->SetPromiseHook(TaskAttributionPromiseHook);
+-    }
++  // Register a tracing state observer unless we're running in a test without
++  // a task runner. Setting the promise hook must happen on the isolate thread,
++  // so the asynchronous observer is also required for Browser Core tracing.
++  if (base::SingleThreadTaskRunner::HasCurrentDefault()) {
++    trace_event::AddTraceSessionObserver(this);
++  }
++  // If tracing was already enabled, there will be no start callback.
++  if (ShouldInstallPromiseHook()) {
++    isolate_->SetPromiseHook(TaskAttributionPromiseHook);
+   }
+ }
+ 
+ TaskAttributionTrackerImpl::~TaskAttributionTrackerImpl() {
+-  if (base::FeatureList::IsEnabled(
+-          features::kTaskAttributionTraceMicrotaskTaskState)) {
+-    // Note that it's safe to remove a non-existent observer.
+-    trace_event::RemoveTraceSessionObserver(this);
+-  }
++  // It is safe to remove an observer that was not registered.
++  trace_event::RemoveTraceSessionObserver(this);
+ }
+ 
+ scheduler::TaskAttributionInfo* TaskAttributionTrackerImpl::CurrentTaskState()
+@@ -304,17 +391,24 @@ TaskAttributionInfo* TaskAttributionTrackerImpl::CommitSameDocumentNavigation(
+ 
+ void TaskAttributionTrackerImpl::OnStart(
+     const perfetto::DataSourceBase::StartArgs&) {
+-  if (IsTracingCategoryEnabled()) {
++  if (ShouldInstallPromiseHook()) {
+     isolate_->SetPromiseHook(TaskAttributionPromiseHook);
+   }
+ }
+ 
+ void TaskAttributionTrackerImpl::OnStop(
+     const perfetto::DataSourceBase::StopArgs& args) {
+-  bool should_stop = !base::trace_event::IsCategoryEnabledOnStop(
+-      PERFETTO_GET_CATEGORY_INDEX(kTracingCategory), args);
++  const bool task_attribution_enabled =
++      base::FeatureList::IsEnabled(
++          features::kTaskAttributionTraceMicrotaskTaskState) &&
++      base::trace_event::IsCategoryEnabledOnStop(
++          PERFETTO_GET_CATEGORY_INDEX(kTracingCategory), args);
++  const bool browser_core_enabled = base::trace_event::IsCategoryEnabledOnStop(
++      PERFETTO_GET_CATEGORY_INDEX("browser_core.debug"), args);
++  const bool should_stop = !task_attribution_enabled && !browser_core_enabled;
+   if (should_stop) {
+     isolate_->SetPromiseHook(nullptr);
++    g_browser_core_promise_trace_stack = {};
+   }
+ }
+ 
+diff --git a/third_party/blink/renderer/core/workers/worker_thread.cc b/third_party/blink/renderer/core/workers/worker_thread.cc
+index e86e07127f..10a5f922c5 100644
+--- a/third_party/blink/renderer/core/workers/worker_thread.cc
++++ b/third_party/blink/renderer/core/workers/worker_thread.cc
+@@ -59,6 +59,7 @@
+ #include "third_party/blink/renderer/core/workers/worker_clients.h"
+ #include "third_party/blink/renderer/core/workers/worker_global_scope.h"
+ #include "third_party/blink/renderer/core/workers/worker_reporting_proxy.h"
++#include "third_party/blink/renderer/platform/bindings/v8_per_isolate_data.h"
+ #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
+ #include "third_party/blink/renderer/platform/loader/fetch/fetch_client_settings_object_snapshot.h"
+ #include "third_party/blink/renderer/platform/loader/fetch/worker_resource_timing_notifier.h"
+@@ -660,6 +661,15 @@ void WorkerThread::InitializeOnWorkerThread(
+     }
+     GetWorkerBackingThread().BackingThread().AddTaskObserver(this);
+ 
++    // The resource-timing feature lazily creates this tracker for only some
++    // worker types. Browser Core startup tracing needs the Promise hook in
++    // every worker isolate, including dedicated, shared, service and worklet
++    // workers. The initializer is idempotent because dedicated/shared worker
++    // construction may request the same tracker later.
++    if (TRACE_EVENT_CATEGORY_ENABLED("browser_core.debug")) {
++      V8PerIsolateData::From(GetIsolate())
++          ->InitializeTaskAttributionTrackerOnWorkerThread();
++    }
+     // TODO(crbug.com/866666): Ideally this URL should be the response URL of
+     // the worker top-level script, while currently can be the request URL
+     // for off-the-main-thread top-level script fetch cases.
+diff --git a/third_party/blink/renderer/platform/bindings/v8_per_isolate_data.cc b/third_party/blink/renderer/platform/bindings/v8_per_isolate_data.cc
+index 6761ca14e9..cd4092d8f2 100644
+--- a/third_party/blink/renderer/platform/bindings/v8_per_isolate_data.cc
++++ b/third_party/blink/renderer/platform/bindings/v8_per_isolate_data.cc
+@@ -362,7 +362,9 @@ void V8PerIsolateData::SetTaskAttributionTrackerFactory(
+ 
+ void V8PerIsolateData::InitializeTaskAttributionTrackerOnWorkerThread() {
+   CHECK(!IsMainThread());
+-  CHECK(!task_attribution_tracker_);
++  if (task_attribution_tracker_) {
++    return;
++  }
+   if (!base::FeatureList::IsEnabled(
+           kTaskAttributionInfrastructureDisabledForTesting)) {
+     CHECK(task_attribution_tracker_factory);

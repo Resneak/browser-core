@@ -1,0 +1,21 @@
+diff --git a/services/tracing/public/cpp/startup_tracing_controller.cc b/services/tracing/public/cpp/startup_tracing_controller.cc
+--- a/services/tracing/public/cpp/startup_tracing_controller.cc
++++ b/services/tracing/public/cpp/startup_tracing_controller.cc
+@@ -95,14 +95,9 @@
+ 
+     if (write_mode_ == WriteMode::kLivePeriodic) {
+       live_timed_stop_ = trace_config.duration_ms() != 0;
+-      // V1 forgets continuity when an idle writer's already-read chunks are
+-      // evicted, then reports ambiguous packet loss on its next packet. The
+-      // pinned V2 buffer retains each sequence's consumed chunk identity and
+-      // reports actual gaps. Keep size, fill policy and all diagnostics intact.
+-      for (auto& buffer : *trace_config.mutable_buffers()) {
+-        buffer.set_experimental_mode(
+-            perfetto::TraceConfig::BufferConfig::TRACE_BUFFER_V2);
+-      }
++      // Keep Chromium's established buffer implementation. Its eviction
++      // bookkeeping retains proven read continuity without consuming across
++      // holes that can still be filled by delayed producer commits.
+     }
+ 
+     if (write_mode_ == WriteMode::kStreaming) {

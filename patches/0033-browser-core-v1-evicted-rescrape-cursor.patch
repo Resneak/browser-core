@@ -1,0 +1,206 @@
+diff --git a/src/tracing/service/trace_buffer_v1.cc b/src/tracing/service/trace_buffer_v1.cc
+--- a/src/tracing/service/trace_buffer_v1.cc
++++ b/src/tracing/service/trace_buffer_v1.cc
+@@ -218,6 +218,42 @@
+                       base::HexDump(wptr, record_size).c_str());
+     stats_.set_chunks_rewritten(stats_.chunks_rewritten() + 1);
+     return;
++  }
++
++  // Scraping can copy the same incomplete chunk long after other writers
++  // evicted it from the ring. Restoring only the existing index loses the read
++  // cursor in that case and duplicates all previously emitted packets. Copy
++  // the last eviction state before any new allocation can change the map.
++  EvictedChunk resume{};
++  const auto evicted = last_evicted_chunk_.find(
++      std::make_pair(producer_id_trusted, writer_id));
++  const bool restore_read_cursor = evicted != last_evicted_chunk_.end() &&
++                                   evicted->second.id == chunk_id;
++  if (restore_read_cursor) {
++    resume = evicted->second;
++    // As with an in-place recommit, a chunk's storage is fixed and completed
++    // fragments are append-only. Never use a stale cursor with a regressive or
++    // invalid replacement. Invalid packet reads set their offset to zero.
++    if (record_size != resume.record_size ||
++        num_fragments < resume.num_fragments ||
++        (resume.complete &&
++         (!chunk_complete || num_fragments != resume.num_fragments)) ||
++        resume.num_fragments_read > num_fragments ||
++        (resume.num_fragments_read > 0 && resume.cur_fragment_offset == 0) ||
++        resume.cur_fragment_offset > record_size - sizeof(ChunkRecord)) {
++      stats_.set_abi_violations(stats_.abi_violations() + 1);
++      PERFETTO_DCHECK(suppress_client_dchecks_for_testing_);
++      return;
++    }
++    ChunkMeta::Key subsequent_key = key;
++    subsequent_key.chunk_id++;
++    const auto subsequent = index_.find(subsequent_key);
++    if (subsequent != index_.end() && subsequent->second.num_fragments_read > 0 &&
++        num_fragments > resume.num_fragments_read) {
++      stats_.set_abi_violations(stats_.abi_violations() + 1);
++      PERFETTO_DCHECK(suppress_client_dchecks_for_testing_);
++      return;
++    }
+   }
+ 
+   if (PERFETTO_UNLIKELY(discard_writes_))
+@@ -271,6 +307,12 @@
+       index_.emplace(key, ChunkMeta(chunk_off, num_fragments, chunk_complete,
+                                     chunk_flags, client_identity_trusted));
+   PERFETTO_DCHECK(it_and_inserted.second);
++  if (restore_read_cursor) {
++    auto& meta = it_and_inserted.first->second;
++    meta.num_fragments_read = resume.num_fragments_read;
++    meta.cur_fragment_offset = resume.cur_fragment_offset;
++    meta.set_last_read_packet_skipped(resume.last_read_packet_skipped);
++  }
+   TRACE_BUFFER_DLOG("  copying @ [%" PRIdPTR " - %" PRIdPTR "] %zu",
+                     wptr_ - begin(), uintptr_t(wptr_ - begin()) + record_size,
+                     record_size);
+@@ -397,15 +439,11 @@
+               meta.is_complete() && meta.num_fragments_read > 0 &&
+               meta.num_fragments_read == meta.num_fragments &&
+               !meta.last_read_packet_skipped() &&
+-              !(meta.flags & (kChunkNeedsPatching | kLastPacketContinuesOnNextChunk))});
+-      if (!last_evicted_chunk_.at(sequence).clean_tail) {
+-        PERFETTO_ELOG("Browser Core V1 uncertain eviction: p=%u w=%u id=%u "
+-                      "complete=%d read=%u fragments=%u skipped=%d flags=%u",
+-                      key.producer_id, key.writer_id, key.chunk_id,
+-                      meta.is_complete(), meta.num_fragments_read,
+-                      meta.num_fragments, meta.last_read_packet_skipped(),
+-                      meta.flags);
+-      }
++              !(meta.flags & (kChunkNeedsPatching | kLastPacketContinuesOnNextChunk)),
++              meta.is_complete(), meta.last_read_packet_skipped(),
++              GetChunkRecordAt(begin() + meta.record_off)->size,
++              meta.num_fragments, meta.num_fragments_read,
++              meta.cur_fragment_offset});
+     }
+     index_.erase(it);
+   }
+@@ -655,13 +693,6 @@
+           retired->second.id + 1 == read_iter_.chunk_id()) {
+         previous_packet_dropped = false;
+       }
+-      if (previous_packet_dropped && retired != last_evicted_chunk_.end()) {
+-        PERFETTO_ELOG("Browser Core V1 continuity unknown: p=%u w=%u id=%u "
+-                      "last=%u clean=%d flags=%u fragments=%u",
+-                      trusted_producer_id, writer_id, read_iter_.chunk_id(),
+-                      retired->second.id, retired->second.clean_tail,
+-                      chunk_meta->flags, chunk_meta->num_fragments);
+-      }
+     }
+ 
+     while (chunk_meta->num_fragments_read < chunk_meta->num_fragments) {
+diff --git a/src/tracing/service/trace_buffer_v1.h b/src/tracing/service/trace_buffer_v1.h
+--- a/src/tracing/service/trace_buffer_v1.h
++++ b/src/tracing/service/trace_buffer_v1.h
+@@ -691,12 +691,19 @@
+   // many producers/writers within the same trace session).
+   std::map<std::pair<ProducerID, WriterID>, ChunkID> last_chunk_id_written_;
+ 
+-  // Last evicted chunk per existing writer sequence. A fully consumed,
+-  // complete, uncorrupted tail proves continuity to its exact successor even
+-  // after all old chunks have left the ring. No payload bytes are retained.
++  // Last evicted chunk per existing writer sequence. Keep its read cursor so
++  // an idle, partially written SMB chunk can be scraped again after eviction
++  // without emitting its consumed prefix twice. A complete clean tail also
++  // proves continuity to its exact successor. No payload bytes are retained.
+   struct EvictedChunk {
+     ChunkID id;
+     bool clean_tail;
++    bool complete;
++    bool last_read_packet_skipped;
++    uint16_t record_size;
++    uint16_t num_fragments;
++    uint16_t num_fragments_read;
++    uint16_t cur_fragment_offset;
+   };
+   std::map<std::pair<ProducerID, WriterID>, EvictedChunk> last_evicted_chunk_;
+ 
+diff --git a/src/tracing/service/trace_buffer_v1_unittest.cc b/src/tracing/service/trace_buffer_v1_unittest.cc
+--- a/src/tracing/service/trace_buffer_v1_unittest.cc
++++ b/src/tracing/service/trace_buffer_v1_unittest.cc
+@@ -2306,4 +2306,82 @@
+   ASSERT_THAT(ReadPacket(), IsEmpty());
+ }
+ 
++
++TEST_F(TraceBufferTest, BrowserCoreEvictedScrapeRejectsRegressiveRecommits) {
++  for (int kind = 0; kind < 4; ++kind) {
++    ResetBuffer(4096);
++    auto original = CreateChunk(ProducerID(1), WriterID(1), ChunkID(0));
++    if (kind == 3)
++      original.AddPacket({0xff, 0x7f}).AddPacket(20, 'b');
++    else
++      original.AddPacket(20, 'a').AddPacket(20, 'b');
++    original.PadTo(1008).CopyIntoTraceBuffer(kind == 2);
++    trace_buffer()->BeginRead();
++    SuppressClientDchecksForTesting();
++    if (kind == 3)
++      ASSERT_THAT(ReadPacket(), IsEmpty());
++    else
++      ASSERT_THAT(ReadPacket(), ElementsAre(FakePacketFragment(20, 'a')));
++    for (ChunkID i = 0; i < 4; ++i)
++      CreateChunk(ProducerID(2), WriterID(1), i)
++          .AddPacket(1008, 'x').CopyIntoTraceBuffer();
++    trace_buffer()->BeginRead();
++    while (!ReadPacket().empty()) {}
++    const auto violations = trace_buffer()->stats().abi_violations();
++    auto replacement = CreateChunk(ProducerID(1), WriterID(1), ChunkID(0));
++    replacement.AddPacket(20, 'a');
++    if (kind != 1) replacement.AddPacket(20, 'b');
++    replacement.PadTo(kind == 0 ? 496 : 1008).CopyIntoTraceBuffer(false);
++    EXPECT_EQ(violations + 1, trace_buffer()->stats().abi_violations()) << kind;
++    trace_buffer()->BeginRead();
++    ASSERT_THAT(ReadPacket(), IsEmpty()) << kind;
++  }
++}
++
++TEST_F(TraceBufferTest, BrowserCoreEvictedScrapeCompletionWithoutMoreFragments) {
++  ResetBuffer(4096);
++  CreateChunk(ProducerID(1), WriterID(1), ChunkID(0))
++      .AddPacket(20, 'a').AddPacket(20, 'b').AddPacket(20, 'c')
++      .PadTo(1008).CopyIntoTraceBuffer(false);
++  trace_buffer()->BeginRead();
++  ASSERT_THAT(ReadPacket(), ElementsAre(FakePacketFragment(20, 'a')));
++  ASSERT_THAT(ReadPacket(), ElementsAre(FakePacketFragment(20, 'b')));
++  ASSERT_THAT(ReadPacket(), IsEmpty());
++  for (ChunkID i = 0; i < 4; ++i)
++    CreateChunk(ProducerID(2), WriterID(1), i)
++        .AddPacket(1008, 'x').CopyIntoTraceBuffer();
++  trace_buffer()->BeginRead();
++  while (!ReadPacket().empty()) {}
++  CreateChunk(ProducerID(1), WriterID(1), ChunkID(0))
++      .AddPacket(20, 'a').AddPacket(20, 'b').PadTo(1008).CopyIntoTraceBuffer();
++  CreateChunk(ProducerID(1), WriterID(1), ChunkID(1))
++      .AddPacket(20, 'z').CopyIntoTraceBuffer();
++  trace_buffer()->BeginRead();
++  uint32_t dropped = 1;
++  ASSERT_THAT(ReadPacket(nullptr, &dropped), ElementsAre(FakePacketFragment(20, 'z')));
++  EXPECT_EQ(0u, dropped);
++  ASSERT_THAT(ReadPacket(), IsEmpty());
++}
++
++TEST_F(TraceBufferTest, BrowserCoreEvictedCursorDoesNotCrossWriterIdentity) {
++  for (bool other_producer : {false, true}) {
++    ResetBuffer(4096);
++    CreateChunk(ProducerID(1), WriterID(1), ChunkID(0))
++        .AddPacket(20, 'a').AddPacket(20, 'b').PadTo(1008).CopyIntoTraceBuffer(false);
++    trace_buffer()->BeginRead();
++    ASSERT_THAT(ReadPacket(), ElementsAre(FakePacketFragment(20, 'a')));
++    ASSERT_THAT(ReadPacket(), IsEmpty());
++    for (ChunkID i = 0; i < 4; ++i)
++      CreateChunk(ProducerID(2), WriterID(1), i)
++          .AddPacket(1008, 'x').CopyIntoTraceBuffer();
++    trace_buffer()->BeginRead();
++    while (!ReadPacket().empty()) {}
++    CreateChunk(ProducerID(other_producer ? 3 : 1), WriterID(other_producer ? 1 : 2), ChunkID(0))
++        .AddPacket(20, 'a').AddPacket(20, 'b').PadTo(1008).CopyIntoTraceBuffer(false);
++    trace_buffer()->BeginRead();
++    ASSERT_THAT(ReadPacket(), ElementsAre(FakePacketFragment(20, 'a')));
++    ASSERT_THAT(ReadPacket(), IsEmpty());
++  }
++}
++
+ }  // namespace perfetto

@@ -1,0 +1,39 @@
+diff --git a/src/trace_processor/sorter/trace_sorter.cc b/src/trace_processor/sorter/trace_sorter.cc
+--- a/src/trace_processor/sorter/trace_sorter.cc
++++ b/src/trace_processor/sorter/trace_sorter.cc
+@@ -15,6 +15,7 @@
+  */
+ 
+ #include <algorithm>
++#include <cinttypes>
+ #include <cstddef>
+ #include <cstdint>
+ #include <cstdlib>
+@@ -132,6 +133,8 @@
+ void TraceSorter::SortAndExtractEventsUntilAllocId(
+     BumpAllocator::AllocId limit_alloc_id) {
+   constexpr int64_t kTsMax = std::numeric_limits<int64_t>::max();
++  const int64_t diagnostic_previous_watermark = latest_pushed_event_ts_;
++  size_t diagnostic_late_events = 0;
+   for (;;) {
+     size_t min_queue_idx = 0;  // The index of the queue with the min(ts).
+ 
+@@ -190,6 +193,18 @@
+       ++num_extracted;
+ 
+       if (event.ts < latest_pushed_event_ts_) {
++        if (diagnostic_late_events++ < 8) {
++          PERFETTO_ELOG("Browser Core sorter late: ts=%" PRId64
++                        " latest=%" PRId64 " previous=%" PRId64
++                        " max=%" PRId64 " queue=%zu alloc=%" PRIu64
++                        ":%" PRIu64 " limit=%" PRIu64 ":%" PRIu64,
++                        event.ts, latest_pushed_event_ts_,
++                        diagnostic_previous_watermark, append_max_ts_,
++                        min_queue_idx, static_cast<uint64_t>(event.chunk_index),
++                        static_cast<uint64_t>(event.chunk_offset),
++                        static_cast<uint64_t>(limit_alloc_id.chunk_index),
++                        static_cast<uint64_t>(limit_alloc_id.chunk_offset));
++        }
+         global_stats_tracker_->IncrementGlobalStats(
+             stats::sorter_push_event_out_of_order);
+         queue.sink->OnDiscardedEvent(this, GetTokenBufferId(event));

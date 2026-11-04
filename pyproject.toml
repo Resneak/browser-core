@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "research-browser-core"
+version = "0.5.40"
+description = "Attested Chromium, provenance-backed personas, fail-closed networking, tracing, and typed fleet control"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["hpack==4.1.0", "playwright==1.59.0", "jsonschema==4.23.0"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+browser-core = "browser_core.cli:main"
+browser-platform = "browser_core.platform_cli:main"
+
+[tool.setuptools.packages.find]
+include = ["browser_core*"]
+
+[tool.setuptools.package-data]
+browser_core = ["inspection_panel.html", "research_picker.html"]
+
+[tool.setuptools.data-files]
+"browser_core_resources" = ["upstream.json"]
+"browser_core_resources/patches" = ["patches/series.json", "patches/*.patch"]
+"browser_core_resources/schemas" = ["schemas/*.json"]
+"browser_core_resources/fixtures" = ["fixtures/*.html", "fixtures/*.js"]

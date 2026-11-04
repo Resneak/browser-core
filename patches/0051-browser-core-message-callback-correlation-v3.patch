@@ -1,0 +1,139 @@
+diff --git a/third_party/blink/renderer/bindings/core/v8/callback_invoke_helper.cc b/third_party/blink/renderer/bindings/core/v8/callback_invoke_helper.cc
+index 2950a94..0eafdb0 100644
+--- a/third_party/blink/renderer/bindings/core/v8/callback_invoke_helper.cc
++++ b/third_party/blink/renderer/bindings/core/v8/callback_invoke_helper.cc
+@@ -4,16 +4,22 @@
+ 
+ #include "third_party/blink/renderer/bindings/core/v8/callback_invoke_helper.h"
+ 
++#include <string>
++#include <string_view>
++
+ #include "base/strings/strcat.h"
+ #include "base/strings/string_number_conversions.h"
+ #include "base/trace_event/trace_event.h"
++#include "third_party/blink/renderer/bindings/core/v8/v8_event.h"
+ #include "third_party/blink/renderer/bindings/core/v8/v8_script_runner.h"
+ #include "third_party/blink/renderer/core/core_export.h"
+ #include "third_party/blink/renderer/core/core_probes_inl.h"
++#include "third_party/blink/renderer/core/dom/events/event.h"
+ #include "third_party/blink/renderer/core/execution_context/execution_context.h"
+ #include "third_party/blink/renderer/platform/bindings/callback_function_base.h"
+ #include "third_party/blink/renderer/platform/bindings/callback_interface_base.h"
+ #include "third_party/blink/renderer/platform/bindings/script_forbidden_scope.h"
++#include "third_party/blink/renderer/platform/instrumentation/browser_core_message_dispatch_context.h"
+ 
+ namespace blink {
+ 
+@@ -140,6 +146,19 @@ bool CallbackInvokeHelper<CallbackBase, mode, return_type_is_promise>::
+             "callback_kind",
+             mode == CallbackInvokeHelperMode::kConstructorCall ? "constructor"
+                                                                : "function");
++        const std::uintptr_t message_dispatch_event =
++            CurrentBrowserCoreMessageDispatchEvent();
++        const std::string_view message_dispatch_id =
++            CurrentBrowserCoreMessageDispatchId();
++        if (message_dispatch_event != 0 && argc == 1 &&
++            std::string_view(class_like_name_) == "EventListener" &&
++            std::string_view(property_name_) == "handleEvent" &&
++            reinterpret_cast<std::uintptr_t>(
++                V8Event::ToWrappable(script_state->GetIsolate(), argv[0])) ==
++                message_dispatch_event) {
++          event.AddDebugAnnotation("message_dispatch_id",
++                                   std::string(message_dispatch_id));
++        }
+       });
+   probe::InvokeCallback probe_scope(*script_state, class_like_name_,
+                                     /*callback=*/nullptr, function_);
+diff --git a/third_party/blink/renderer/core/messaging/message_port.cc b/third_party/blink/renderer/core/messaging/message_port.cc
+index a4e31bc..a6148d5 100644
+--- a/third_party/blink/renderer/core/messaging/message_port.cc
++++ b/third_party/blink/renderer/core/messaging/message_port.cc
+@@ -58,6 +58,7 @@
+ #include "third_party/blink/renderer/platform/bindings/exception_state.h"
+ #include "third_party/blink/renderer/platform/bindings/script_state.h"
+ #include "third_party/blink/renderer/platform/bindings/thread_debugger.h"
++#include "third_party/blink/renderer/platform/instrumentation/browser_core_message_dispatch_context.h"
+ #include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
+ #include "third_party/blink/renderer/platform/scheduler/public/task_attribution_tracker.h"
+ #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
+@@ -469,6 +470,8 @@ void MessagePort::DispatchMessageEvent(BlinkTransferableMessage message) {
+   }
+ 
+   v8::Isolate* isolate = context->GetIsolate();
++  std::optional<BrowserCoreMessageDispatchScope>
++      browser_core_message_dispatch_scope;
+   if (*TRACE_EVENT_API_GET_CATEGORY_GROUP_ENABLED("browser_core.debug")) {
+     const std::string context_id =
+         context->GetExecutionContextToken().ToString();
+@@ -490,6 +493,8 @@ void MessagePort::DispatchMessageEvent(BlinkTransferableMessage message) {
+         "context_id", context_id, "context_kind", context_kind, "native_id",
+         native_id, "native_parent_id", browser_core_parent_id,
+         "dispatch_kind", dispatch_kind);
++    browser_core_message_dispatch_scope.emplace(
++        reinterpret_cast<std::uintptr_t>(evt), native_id);
+   }
+   ThreadDebugger* debugger = ThreadDebugger::From(isolate);
+   if (debugger)
+diff --git a/third_party/blink/renderer/platform/instrumentation/browser_core_message_dispatch_context.h b/third_party/blink/renderer/platform/instrumentation/browser_core_message_dispatch_context.h
+new file mode 100644
+index 0000000..ce6f2a3
+--- /dev/null
++++ b/third_party/blink/renderer/platform/instrumentation/browser_core_message_dispatch_context.h
+@@ -0,0 +1,56 @@
++// Copyright 2026 The Chromium Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_INSTRUMENTATION_BROWSER_CORE_MESSAGE_DISPATCH_CONTEXT_H_
++#define THIRD_PARTY_BLINK_RENDERER_PLATFORM_INSTRUMENTATION_BROWSER_CORE_MESSAGE_DISPATCH_CONTEXT_H_
++
++#include <cstdint>
++#include <string_view>
++
++namespace blink {
++
++inline constinit thread_local std::uintptr_t
++    g_browser_core_message_dispatch_event = 0;
++inline constinit thread_local std::string_view
++    g_browser_core_message_dispatch_id;
++
++class BrowserCoreMessageDispatchScope final {
++ public:
++  BrowserCoreMessageDispatchScope(std::uintptr_t event,
++                                  std::string_view native_id)
++      : previous_event_(g_browser_core_message_dispatch_event),
++        previous_id_(g_browser_core_message_dispatch_id) {
++    g_browser_core_message_dispatch_event = event;
++    g_browser_core_message_dispatch_id = native_id;
++  }
++
++  BrowserCoreMessageDispatchScope(const BrowserCoreMessageDispatchScope&) =
++      delete;
++  BrowserCoreMessageDispatchScope& operator=(
++      const BrowserCoreMessageDispatchScope&) = delete;
++  BrowserCoreMessageDispatchScope(BrowserCoreMessageDispatchScope&&) = delete;
++  BrowserCoreMessageDispatchScope& operator=(
++      BrowserCoreMessageDispatchScope&&) = delete;
++
++  ~BrowserCoreMessageDispatchScope() {
++    g_browser_core_message_dispatch_event = previous_event_;
++    g_browser_core_message_dispatch_id = previous_id_;
++  }
++
++ private:
++  std::uintptr_t previous_event_;
++  std::string_view previous_id_;
++};
++
++inline std::uintptr_t CurrentBrowserCoreMessageDispatchEvent() {
++  return g_browser_core_message_dispatch_event;
++}
++
++inline std::string_view CurrentBrowserCoreMessageDispatchId() {
++  return g_browser_core_message_dispatch_id;
++}
++
++}  // namespace blink
++
++#endif  // THIRD_PARTY_BLINK_RENDERER_PLATFORM_INSTRUMENTATION_BROWSER_CORE_MESSAGE_DISPATCH_CONTEXT_H_

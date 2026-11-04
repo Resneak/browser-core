@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:browser-core:metadata-bookmark:1",
+  "title": "Immutable value-free focused-row evidence bookmark",
+  "description": "Canonical ASCII JSON plus LF, at most 65536 bytes. Exact rows.json bytes remain capped at 16384 bytes. Verification additionally requires a trusted external manifest digest, exact member set, and cross-field reconstruction. Local integrity and replay are not source authenticity, prose-claim verification, capture completeness or transport delivery.",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema", "response", "replay", "citation", "row_ids", "page", "limitations"],
+  "properties": {
+    "schema": {"const": "browser-core.metadata-bookmark/1"},
+    "response": {"$ref": "#/$defs/response"},
+    "replay": {"type": "object", "additionalProperties": false,
+      "required": ["rows_version", "expected_bundle_sha256", "filters", "limit", "input_cursor"],
+      "properties": {
+        "rows_version": {"const": 1},
+        "expected_bundle_sha256": {"$ref": "#/$defs/digest"},
+        "filters": {"$ref": "urn:browser-core:metadata-rows:1#/$defs/filters"},
+        "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+        "input_cursor": {"$ref": "#/$defs/cursor"}
+      }},
+    "citation": {"type": "object", "additionalProperties": false,
+      "required": ["run_id", "capture", "producer_chromium_revision", "reader_runtime", "snapshot", "source_recording", "bundle", "recording_health", "query", "semantics", "output"],
+      "properties": {
+        "run_id": {"$ref": "urn:browser-core:metadata-rows:1#/oneOf/1/properties/run_id"},
+        "capture": {"$ref": "urn:browser-core:metadata-rows:1#/oneOf/1/properties/capture"},
+        "producer_chromium_revision": {"$ref": "urn:browser-core:metadata-rows:1#/oneOf/1/properties/producer_chromium_revision"},
+        "reader_runtime": {"$ref": "urn:browser-core:metadata-rows:1#/oneOf/1/properties/reader_runtime"},
+        "snapshot": {"$ref": "urn:browser-core:metadata-rows:1#/$defs/snapshot"},
+        "source_recording": {"$ref": "urn:browser-core:metadata-rows:1#/oneOf/1/properties/source_recording"},
+        "bundle": {"$ref": "urn:browser-core:metadata-rows:1#/oneOf/1/properties/bundle"},
+        "recording_health": {"$ref": "urn:browser-core:metadata-rows:1#/oneOf/1/properties/recording_health"},
+        "query": {"$ref": "urn:browser-core:metadata-rows:1#/oneOf/1/properties/query"},
+        "semantics": {"$ref": "urn:browser-core:metadata-rows:1#/oneOf/1/properties/semantics"},
+        "output": {"$ref": "urn:browser-core:metadata-rows:1#/oneOf/1/properties/output"}
+      }},
+    "row_ids": {"type": "array", "maxItems": 100, "uniqueItems": true,
+      "items": {"$ref": "urn:browser-core:metadata-rows:1#/$defs/count"}},
+    "page": {"$ref": "#/$defs/page"},
+    "limitations": {"$ref": "#/$defs/limitations"}
+  },
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^[0-9a-f]{64}$", "minLength": 64, "maxLength": 64},
+    "cursor": {"type": ["string", "null"], "minLength": 1, "maxLength": 1024, "pattern": "^[A-Za-z0-9_=-]+$"},
+    "response": {"type": "object", "additionalProperties": false,
+      "required": ["name", "sha256", "bytes"], "properties": {
+        "name": {"const": "rows.json"}, "sha256": {"$ref": "#/$defs/digest"},
+        "bytes": {"type": "integer", "minimum": 1, "maximum": 16384}}},
+    "page": {"type": "object", "additionalProperties": false,
+      "required": ["state", "input_cursor_present", "more_available", "next_cursor"],
+      "properties": {"state": {"enum": ["partial", "complete"]},
+        "input_cursor_present": {"type": "boolean"}, "more_available": {"type": "boolean"},
+        "next_cursor": {"$ref": "#/$defs/cursor"}}},
+    "limitations": {"const": {"prose_claim_verified": false, "causality_inferred": false,
+      "capture_completeness_verified": false, "source_authenticity_verified": false,
+      "transport_delivery_verified": false, "transport_truncated": null}}
+  }
+}

@@ -1,0 +1,101 @@
+diff --git a/services/tracing/public/cpp/startup_tracing_controller.cc b/services/tracing/public/cpp/startup_tracing_controller.cc
+--- a/services/tracing/public/cpp/startup_tracing_controller.cc
++++ b/services/tracing/public/cpp/startup_tracing_controller.cc
+@@ -126,6 +126,14 @@
+               &requested_mib) && requested_mib >= 4 && requested_mib <= 1024) {
+         live_byte_limit_ = requested_mib * 1024 * 1024;
+       }
++      uint64_t requested_parts = 0;
++      if (base::StringToUint64(
++              base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
++                  "browser-core-recording-parts"),
++              &requested_parts) && requested_parts >= 2 && requested_parts <= 16 &&
++          live_byte_limit_ * requested_parts <= uint64_t{4096} * 1024 * 1024) {
++        live_max_parts_ = requested_parts;
++      }
+       // This predictable sibling is an explicitly incomplete, append-only live
+       // artifact. Never truncate an existing recording. The completed trace is
+       // published at output_file_ only after the final drain succeeds.
+@@ -258,23 +266,37 @@
+ 
+   void OnLiveTraceChunk(std::string chunk, bool has_more, bool final_read) {
+     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+-    if (!live_write_failed_ && !live_limit_reached_ && !chunk.empty()) {
+-      const size_t remaining =
+-          static_cast<size_t>(live_byte_limit_ - live_written_bytes_);
+-      const size_t bytes_to_write = std::min(chunk.size(), remaining);
+-      // Append a bounded prefix instead of dropping an entire oversized
+-      // callback. This also preserves useful startup data for small budgets.
+-      // Never overwrite earlier evidence. A final partial packet is explicitly
+-      // reported and excluded by the reader's complete-packet boundary.
+-      if (bytes_to_write &&
+-          !file_.WriteAtCurrentPosAndCheck(
+-              base::as_byte_span(chunk).first(bytes_to_write))) {
++    size_t consumed = 0;
++    while (!live_write_failed_ && !live_limit_reached_ && consumed < chunk.size()) {
++      if (live_part_bytes_ == live_byte_limit_) {
++        file_.Close();
++        ++live_part_number_;
++        written_to_file_ = output_file_.AddExtension(FILE_PATH_LITERAL("live"))
++                               .AddExtensionASCII("part" + base::NumberToString(live_part_number_));
++        file_.Initialize(written_to_file_,
++                         base::File::FLAG_CREATE | base::File::FLAG_WRITE);
++        live_part_bytes_ = 0;
++        if (!file_.IsValid()) {
++          live_write_failed_ = true;
++          LOG(ERROR) << "Browser Core could not create the next recording part";
++          Stop(base::OnceClosure());
++          break;
++        }
++      }
++      const size_t remaining = static_cast<size_t>(live_byte_limit_ - live_part_bytes_);
++      const size_t count = std::min(chunk.size() - consumed, remaining);
++      // Parts are consecutive bytes of one unchanged Perfetto stream. A packet
++      // may cross files; the reader joins the bytes before decoding. No stop,
++      // restart, buffer reset or overwrite occurs at a part boundary.
++      if (!file_.WriteAtCurrentPosAndCheck(base::as_byte_span(chunk).subspan(consumed, count))) {
+         live_write_failed_ = true;
+         LOG(ERROR) << "Browser Core live trace write failed; retaining partial artifact";
+         Stop(base::OnceClosure());
+       } else {
+-        live_written_bytes_ += bytes_to_write;
+-        if (live_written_bytes_ == live_byte_limit_) {
++        consumed += count;
++        live_part_bytes_ += count;
++        live_written_bytes_ += count;
++        if (live_written_bytes_ == live_byte_limit_ * live_max_parts_) {
+           live_limit_reached_ = true;
+           LOG(WARNING) << "Browser Core recording limit reached; stopping capture";
+           Stop(base::OnceClosure());
+@@ -382,6 +404,21 @@
+       return;
+     }
+ 
++    if (write_mode_ == WriteMode::kLivePeriodic && live_max_parts_ > 1) {
++      // Keep all part names stable. This marker follows the final producer
++      // drain and file close; the parts remain one continuous recording.
++      base::File marker(output_file_.AddExtension(FILE_PATH_LITERAL("parts-done")),
++                        base::File::FLAG_CREATE | base::File::FLAG_WRITE);
++      if (!marker.IsValid()) {
++        LOG(ERROR) << "Browser Core could not finalize its recording parts";
++      }
++      state_ = State::kFinished;
++      if (on_tracing_finished_) {
++        std::move(on_tracing_finished_).Run();
++      }
++      return;
++    }
++
+     if (written_to_file_ != output_file_) {
+       base::File::Error error;
+       if (!base::ReplaceFile(written_to_file_, output_file_, &error)) {
+@@ -427,6 +464,9 @@
+   bool live_limit_reached_ = false;
+   uint64_t live_byte_limit_ = uint64_t{1024} * 1024 * 1024;
+   uint64_t live_written_bytes_ = 0;
++  uint64_t live_part_bytes_ = 0;
++  uint64_t live_part_number_ = 1;
++  uint64_t live_max_parts_ = 1;
+ 
+   const tracing::TraceStartupConfig::OutputFormat output_format_;
+ 

@@ -1,0 +1,16 @@
+diff --git a/src/tracing/service/trace_buffer_v2.cc b/src/tracing/service/trace_buffer_v2.cc
+--- a/src/tracing/service/trace_buffer_v2.cc
++++ b/src/tracing/service/trace_buffer_v2.cc
+@@ -809,6 +809,12 @@
+                            chunk_id, previously_consumed_payload);
+     } else if (cmp <= 0) {
+       // Older or same chunk with no new data to recover.
++      PERFETTO_ELOG("Browser Core V2 rejected chunk: id=%u last=%u cmp=%d "
++                    "incomplete=%d previous_bytes=%u bytes=%u complete=%d",
++                    chunk_id, seq.last_chunk_consumed->chunk_id, cmp,
++                    seq.last_chunk_consumed->was_incomplete,
++                    seq.last_chunk_consumed->payload_size, all_frags_size_u16,
++                    chunk_complete);
+       stats_.set_chunks_discarded(stats_.chunks_discarded() + 1);
+       PERFETTO_DCHECK(suppress_client_dchecks_for_testing_);
+       return;

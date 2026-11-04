@@ -1,0 +1,108 @@
+diff --git a/services/tracing/public/cpp/startup_tracing_controller.cc b/services/tracing/public/cpp/startup_tracing_controller.cc
+--- a/services/tracing/public/cpp/startup_tracing_controller.cc
++++ b/services/tracing/public/cpp/startup_tracing_controller.cc
+@@ -4,6 +4,7 @@
+ 
+ #include "services/tracing/public/cpp/startup_tracing_controller.h"
+ 
++#include <algorithm>
+ #include <string>
+ #include <string_view>
+ #include <utility>
+@@ -17,6 +18,7 @@
+ #include "base/logging.h"
+ #include "base/no_destructor.h"
+ #include "base/run_loop.h"
++#include "base/strings/string_number_conversions.h"
+ #include "base/synchronization/waitable_event.h"
+ #include "base/task/bind_post_task.h"
+ #include "base/task/sequenced_task_runner.h"
+@@ -115,6 +117,15 @@
+     TRACE_EVENT("startup", "StartupTracingController::Start");
+ 
+     if (write_mode_ == WriteMode::kLivePeriodic) {
++      // Match the largest source understood by the current bounded reader.
++      // The managed launcher may request a smaller recording budget.
++      uint64_t requested_mib = 0;
++      if (base::StringToUint64(
++              base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
++                  "browser-core-recording-limit-mib"),
++              &requested_mib) && requested_mib >= 4 && requested_mib <= 1024) {
++        live_byte_limit_ = requested_mib * 1024 * 1024;
++      }
+       // This predictable sibling is an explicitly incomplete, append-only live
+       // artifact. Never truncate an existing recording. The completed trace is
+       // published at output_file_ only after the final drain succeeds.
+@@ -222,7 +233,7 @@
+ 
+   void ReadLiveTrace(bool final_read) {
+     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+-    if (live_write_failed_ && final_read) {
++    if ((live_write_failed_ || live_limit_reached_) && final_read) {
+       live_read_pending_ = false;
+       Finalise();
+       return;
+@@ -247,11 +258,28 @@
+ 
+   void OnLiveTraceChunk(std::string chunk, bool has_more, bool final_read) {
+     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+-    if (!live_write_failed_ && !chunk.empty() &&
+-        !file_.WriteAtCurrentPosAndCheck(base::as_byte_span(chunk))) {
+-      live_write_failed_ = true;
+-      LOG(ERROR) << "Browser Core live trace write failed; retaining partial artifact";
+-      Stop(base::OnceClosure());
++    if (!live_write_failed_ && !live_limit_reached_ && !chunk.empty()) {
++      const size_t remaining =
++          static_cast<size_t>(live_byte_limit_ - live_written_bytes_);
++      const size_t bytes_to_write = std::min(chunk.size(), remaining);
++      // Append a bounded prefix instead of dropping an entire oversized
++      // callback. This also preserves useful startup data for small budgets.
++      // Never overwrite earlier evidence. A final partial packet is explicitly
++      // reported and excluded by the reader's complete-packet boundary.
++      if (bytes_to_write &&
++          !file_.WriteAtCurrentPosAndCheck(
++              base::as_byte_span(chunk).first(bytes_to_write))) {
++        live_write_failed_ = true;
++        LOG(ERROR) << "Browser Core live trace write failed; retaining partial artifact";
++        Stop(base::OnceClosure());
++      } else {
++        live_written_bytes_ += bytes_to_write;
++        if (live_written_bytes_ == live_byte_limit_) {
++          live_limit_reached_ = true;
++          LOG(WARNING) << "Browser Core recording limit reached; stopping capture";
++          Stop(base::OnceClosure());
++        }
++      }
+     }
+     if (has_more) {
+       return;
+@@ -333,7 +361,18 @@
+     DCHECK_NE(state_, State::kFinished);
+     file_.Close();
+ 
+-    if (write_mode_ == WriteMode::kLivePeriodic && live_write_failed_) {
++    if (write_mode_ == WriteMode::kLivePeriodic &&
++        (live_write_failed_ || live_limit_reached_)) {
++      if (live_limit_reached_) {
++        // An empty create-only marker is published only AFTER closing the
++        // original file and acknowledging producer stop. It is never a
++        // completed-trace receipt. The original bound .live file is preserved.
++        base::File marker(output_file_.AddExtension(FILE_PATH_LITERAL("limit")),
++                          base::File::FLAG_CREATE | base::File::FLAG_WRITE);
++        if (!marker.IsValid()) {
++          LOG(ERROR) << "Browser Core could not publish its recording-limit marker";
++        }
++      }
+       // Preserve the partial bytes for diagnosis, but never label them as a
+       // completed trace. The launcher/consumer can observe the absent final.
+       state_ = State::kFinished;
+@@ -385,6 +424,9 @@
+   base::File file_;
+   bool live_read_pending_ = false;
+   bool live_write_failed_ = false;
++  bool live_limit_reached_ = false;
++  uint64_t live_byte_limit_ = uint64_t{1024} * 1024 * 1024;
++  uint64_t live_written_bytes_ = 0;
+ 
+   const tracing::TraceStartupConfig::OutputFormat output_format_;
+ 

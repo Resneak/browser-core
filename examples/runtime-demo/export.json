@@ -1,0 +1,22 @@
+{
+  "chromium_revision": "bf6d8a66b43635a532bdad773407285fac0121e9",
+  "normalized_trace": {
+    "bytes": 4858894,
+    "category_provenance": "complete",
+    "events": 4886,
+    "schema": "browser-core.trace-event/1",
+    "sha256": "fbc2bcabcbb3d785a9652982dbaf4b7543aa359417da565292fb5d1a5e1e6fab",
+    "trace_categories": {
+      "blink.bindings": 4317,
+      "blink.bindings.encoding": 175,
+      "browser_core.debug": 394
+    }
+  },
+  "run_id": "core-20261104T020129Z-77246ead",
+  "schema": "browser-core.trace-export/1",
+  "source_trace": {
+    "bytes": 864429,
+    "format": "perfetto-trace",
+    "sha256": "5d46b56930acc14c0b9d907b34490d286d56cb7affd28d3302f25d6d1c02e3b4"
+  }
+}

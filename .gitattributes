@@ -1,0 +1,12 @@
+# Patch-series digests bind exact bytes. Preserve LF in Windows worktrees even
+# when the user's global Git configuration enables core.autocrlf.
+patches/*.patch text eol=lf -whitespace
+# The accepted Agent17.2 runtime binds the manifest and patch payloads as LF.
+# Lock both sides of that exact-byte contract across Windows worktrees.
+patches/series.json text eol=lf
+# Schemas, the upstream manifest and fixtures are also bound by exact-byte
+# digests (frozen consumer schemas, build attestation, fixture goldens). A
+# CRLF checkout silently breaks those digests on fresh Windows clones.
+upstream.json text eol=lf
+schemas/*.json text eol=lf
+fixtures/** text eol=lf

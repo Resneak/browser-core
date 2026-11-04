@@ -1,0 +1,21 @@
+diff --git a/services/tracing/public/cpp/startup_tracing_controller.cc b/services/tracing/public/cpp/startup_tracing_controller.cc
+--- a/services/tracing/public/cpp/startup_tracing_controller.cc
++++ b/services/tracing/public/cpp/startup_tracing_controller.cc
+@@ -93,6 +93,17 @@
+         perfetto::Tracing::NewTrace(perfetto::BackendType::kCustomBackend);
+ #endif
+ 
++    if (write_mode_ == WriteMode::kLivePeriodic) {
++      // V1 forgets continuity when an idle writer's already-read chunks are
++      // evicted, then reports ambiguous packet loss on its next packet. The
++      // pinned V2 buffer retains each sequence's consumed chunk identity and
++      // reports actual gaps. Keep size, fill policy and all diagnostics intact.
++      for (auto& buffer : *trace_config.mutable_buffers()) {
++        buffer.set_experimental_mode(
++            perfetto::TraceConfig::BufferConfig::TRACE_BUFFER_V2);
++      }
++    }
++
+     if (write_mode_ == WriteMode::kStreaming) {
+ #if !BUILDFLAG(IS_WIN)
+       OpenFile(output_file_);

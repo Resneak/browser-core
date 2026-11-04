@@ -1,0 +1,118 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>browser-core-message-transfer-pending</title>
+<body><pre id="result">pending</pre>
+<script>
+const outcomes = [];
+function check(ok, message) { if (!ok) throw new Error(message); }
+function deadline(promise) {
+  let timer;
+  return Promise.race([promise, new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error("delivery timeout")), 12000);
+  })]).finally(() => clearTimeout(timer));
+}
+async function channelCase(name, run) {
+  const carrier = new MessageChannel();
+  try {
+    await deadline(run(carrier));
+    outcomes.push({name, passed: true});
+  } finally {
+    carrier.port1.close(); carrier.port2.close();
+  }
+}
+function receive(port) {
+  return new Promise((resolve, reject) => {
+    port.onmessage = resolve;
+    port.onmessageerror = () => reject(new Error("messageerror"));
+  });
+}
+async function run() {
+  await channelCase("structured-clone", async carrier => {
+    const received = receive(carrier.port2);
+    carrier.port1.postMessage({date:new Date(1234), map:new Map([["x", 17]])});
+    const value = (await received).data;
+    check(value.date.getTime() === 1234 && value.map.get("x") === 17, "clone values");
+  });
+  await channelCase("transferred-port", async carrier => {
+    const inner = new MessageChannel();
+    try {
+      const received = receive(carrier.port2), reply = receive(inner.port2);
+      carrier.port1.postMessage({port:inner.port1}, [inner.port1]);
+      const port = (await received).data.port;
+      port.postMessage("port-still-usable");
+      check((await reply).data === "port-still-usable", "transferred port reply");
+      port.close();
+    } finally { inner.port1.close(); inner.port2.close(); }
+  });
+  for (const transfer of [false, true]) {
+    await channelCase(transfer ? "transferred-large-buffer" : "copied-large-buffer", async carrier => {
+      const bytes = new Uint8Array(1024 * 1024);
+      bytes[0] = 37; bytes[bytes.length - 1] = 91;
+      const received = receive(carrier.port2);
+      carrier.port1.postMessage(bytes.buffer, transfer ? [bytes.buffer] : []);
+      check(bytes.byteLength === (transfer ? 0 : 1024 * 1024), "sender ownership");
+      const result = new Uint8Array((await received).data);
+      check(result.length === 1024 * 1024 && result[0] === 37 && result[result.length-1] === 91, "buffer contents");
+      result[0] = 99;
+      if (!transfer) check(bytes[0] === 37, "copy independence");
+    });
+  }
+  await channelCase("transferred-readable-stream", async carrier => {
+    const stream = new ReadableStream({start(c) {c.enqueue("first");c.enqueue("second");c.close();}});
+    const received = receive(carrier.port2);
+    carrier.port1.postMessage(stream, [stream]);
+    check(stream.locked, "sender stream ownership");
+    const reader = (await received).data.getReader();
+    check((await reader.read()).value === "first", "stream first value");
+    check((await reader.read()).value === "second", "stream second value");
+    check((await reader.read()).done, "stream close");
+    reader.releaseLock();
+  });
+  for (const target of ["worker", "cross-origin-frame"]) {
+    const carrier = new MessageChannel();
+    let worker, frame;
+    try {
+      if (target === "worker") {
+        worker = new Worker("/transfer-receiver.js");
+        worker.postMessage("bootstrap", [carrier.port2]);
+      } else {
+        frame = document.createElement("iframe");
+        frame.src = `http://localhost:${location.port}/transfer-frame.html`;
+        const loaded = new Promise(resolve => frame.onload = resolve);
+        document.body.append(frame); await deadline(loaded);
+        frame.contentWindow.postMessage("bootstrap", `http://localhost:${location.port}`, [carrier.port2]);
+      }
+      const reply = receive(carrier.port1);
+      const inner = new MessageChannel();
+      const innerReply = receive(inner.port2);
+      const bytes = new Uint8Array(1024 * 1024);bytes[0]=13;bytes[bytes.length-1]=71;
+      carrier.port1.postMessage({port:inner.port1, buffer:bytes.buffer}, [inner.port1, bytes.buffer]);
+      check(bytes.byteLength === 0, "remote sender ownership");
+      check((await deadline(reply)).data === "receiver-values-ok", "remote buffer values");
+      check((await deadline(innerReply)).data === "receiver-port-ok", "remote transferred port");
+      inner.port1.close();inner.port2.close();
+      outcomes.push({name:target+"-transfer",passed:true});
+    } finally {
+      carrier.port1.close();carrier.port2.close();
+      if (worker) worker.terminate();if (frame) frame.remove();
+    }
+  }
+  // Repeated handle ownership transitions exercise the previous crash beyond a
+  // single successful transfer and catch correlation-ID reuse.
+  for (let i=0;i<32;i++) {
+    await channelCase("repeated-port-"+i, async carrier => {
+      const inner=new MessageChannel();const received=receive(carrier.port2);
+      carrier.port1.postMessage(i,[inner.port1]);
+      const event=await received;check(event.data===i && event.ports.length===1,"repeat transfer");
+      event.ports[0].close();inner.port1.close();inner.port2.close();
+    });
+  }
+}
+run().then(() => {
+  document.querySelector("#result").textContent=JSON.stringify({passed:true,cases:outcomes});
+  document.title="browser-core-message-transfer-ok";
+}, error => {
+  document.querySelector("#result").textContent=JSON.stringify({passed:false,error:error.message,cases:outcomes});
+  document.title="browser-core-message-transfer-failed";
+});
+</script>

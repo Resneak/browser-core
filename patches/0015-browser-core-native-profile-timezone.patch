@@ -1,0 +1,60 @@
+diff --git a/third_party/blink/renderer/core/timezone/timezone_controller.cc b/third_party/blink/renderer/core/timezone/timezone_controller.cc
+--- a/third_party/blink/renderer/core/timezone/timezone_controller.cc
++++ b/third_party/blink/renderer/core/timezone/timezone_controller.cc
+@@ -4,6 +4,7 @@
+ 
+ #include "third_party/blink/renderer/core/timezone/timezone_controller.h"
+ 
++#include "base/command_line.h"
+ #include "base/feature_list.h"
+ #include "mojo/public/cpp/bindings/pending_remote.h"
+ #include "mojo/public/cpp/bindings/remote.h"
+@@ -15,6 +16,7 @@
+ #include "third_party/blink/renderer/core/frame/frame.h"
+ #include "third_party/blink/renderer/core/frame/local_dom_window.h"
+ #include "third_party/blink/renderer/core/frame/local_frame.h"
++#include "third_party/blink/renderer/core/inspector/locale_controller.h"
+ #include "third_party/blink/renderer/core/page/page.h"
+ #include "third_party/blink/renderer/core/workers/worker_backing_thread.h"
+ #include "third_party/blink/renderer/core/workers/worker_or_worklet_global_scope.h"
+@@ -109,6 +111,28 @@
+   Platform::Current()->GetBrowserInterfaceBroker()->GetInterface(
+       monitor.BindNewPipeAndPassReceiver());
+   monitor->AddClient(instance().receiver_.BindNewPipeAndPassRemote());
++  const auto* command = base::CommandLine::ForCurrentProcess();
++  if (command->HasSwitch("browser-core-evaluation")) {
++    // Chromium's UI resource locale can discard the requested region. Keep
++    // Intl formatting pinned to the selected persona in every renderer and
++    // worker, using the existing native locale controller.
++    const auto locale = command->GetSwitchValueASCII("browser-core-locale");
++    if (!locale.empty() && locale.size() <= 64) {
++      LocaleController::instance().SetLocaleOverride(
++          String::FromUtf8(locale), /*is_claiming_override=*/true);
++    }
++    const auto requested =
++        command->GetSwitchValueASCII("browser-core-timezone");
++    if (!requested.empty() && requested.size() <= 96) {
++      auto result = SetTimeZoneOverride(String::FromUtf8(requested));
++      // Retain native override ownership for this renderer's lifetime. The
++      // existing controller keeps Date, Intl and worker isolates synchronized
++      // and prevents host timezone notifications from replacing the selection.
++      if (result.handle) {
++        instance().evaluation_override_ = std::move(result.handle);
++      }
++    }
++  }
+ }
+ 
+ // static
+diff --git a/third_party/blink/renderer/core/timezone/timezone_controller.h b/third_party/blink/renderer/core/timezone/timezone_controller.h
+--- a/third_party/blink/renderer/core/timezone/timezone_controller.h
++++ b/third_party/blink/renderer/core/timezone/timezone_controller.h
+@@ -100,6 +100,8 @@
+ 
+   String host_timezone_id_ GUARDED_BY(lock_);
+   String override_timezone_id_ GUARDED_BY(lock_);
++  // Destroy the owning handle before the state and lock it uses.
++  std::unique_ptr<TimeZoneOverride> evaluation_override_;
+ };
+ 
+ }  // namespace blink

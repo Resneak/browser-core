@@ -1,0 +1,57 @@
+diff --git a/content/browser/renderer_host/render_widget_host_view_base.cc b/content/browser/renderer_host/render_widget_host_view_base.cc
+--- a/content/browser/renderer_host/render_widget_host_view_base.cc
++++ b/content/browser/renderer_host/render_widget_host_view_base.cc
+@@ -7,6 +7,9 @@
+ #include <optional>
+ 
+ #include "base/check.h"
++#include "base/command_line.h"
++#include "base/strings/string_number_conversions.h"
++#include "base/strings/string_split.h"
+ #include "base/feature_list.h"
+ #include "base/functional/bind.h"
+ #include "base/lazy_instance.h"
+@@ -563,6 +566,43 @@
+   }
+ 
+   auto new_screen_infos = GetNewScreenInfosForUpdate();
++  // Realize the selected evaluation display before it is distributed to the
++  // renderer and child-frame widgets. All screen APIs and media queries consume
++  // this same native ScreenInfo; no per-getter JavaScript replacement is used.
++  const auto* command = base::CommandLine::ForCurrentProcess();
++  if (command->HasSwitch("browser-core-evaluation") &&
++      command->HasSwitch("browser-core-screen-size")) {
++    const auto parse_size = [](const std::string& value) -> std::optional<gfx::Size> {
++      const auto parts = base::SplitStringPiece(
++          value, ",", base::KEEP_WHITESPACE, base::SPLIT_WANT_ALL);
++      int width = 0;
++      int height = 0;
++      if (parts.size() != 2 || !base::StringToInt(parts[0], &width) ||
++          !base::StringToInt(parts[1], &height) || width < 200 || width > 10000 ||
++          height < 200 || height > 10000) {
++        return std::nullopt;
++      }
++      return gfx::Size(width, height);
++    };
++    const auto size = parse_size(
++        command->GetSwitchValueASCII("browser-core-screen-size"));
++    const auto work_area = command->HasSwitch("browser-core-screen-work-area")
++        ? parse_size(command->GetSwitchValueASCII("browser-core-screen-work-area"))
++        : size;
++    if (size && work_area && size->width() >= work_area->width() &&
++        size->height() >= work_area->height()) {
++      auto selected = new_screen_infos.current();
++      selected.rect = gfx::Rect(*size);
++      selected.available_rect = gfx::Rect(*work_area);
++      selected.orientation_type = size->width() >= size->height()
++          ? display::mojom::ScreenOrientation::kLandscapePrimary
++          : display::mojom::ScreenOrientation::kPortraitPrimary;
++      selected.orientation_angle = 0;
++      selected.is_extended = false;
++      selected.is_primary = true;
++      new_screen_infos = display::ScreenInfos(selected);
++    }
++  }
+   new_screen_infos.mutable_current().handwriting_radius = handwriting_radius_;
+ 
+   if (scale_override_for_capture_ != 1.0f) {

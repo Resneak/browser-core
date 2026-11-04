@@ -1,0 +1,19 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>browser-core-retention-pending</title>
+<pre id="result">pending</pre>
+<script>
+// A known early observation, a busy but ordinary getter loop, and a known late
+// observation distinguish full-session recording from a latest-events window.
+const started = performance.now();
+const early = navigator.language;
+let sum = 0;
+for (let i = 0; i < 4096; i++) sum += navigator.hardwareConcurrency;
+const late = navigator.platform;
+document.querySelector('#result').textContent = JSON.stringify({
+  passed: early.length > 0 && late.length > 0 && sum > 0,
+  expected: {early: 1, mainReads: 4096, late: 1},
+  sum, elapsedMilliseconds: performance.now() - started
+});
+document.title = 'browser-core-retention-done';
+</script>

@@ -1,0 +1,64 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "$id":"urn:browser-core:metadata-query:2",
+  "title":"Bounded native metadata query with inventory",
+  "description":"The implementation additionally validates every portable event and its cross-record graph with trace-event/1 before filtering. These are observations, not private values or server behavior.",
+  "type":"object", "additionalProperties":false,
+  "required":["schema","status","run_id","capture","reader_runtime","snapshot","recording_health","query","semantics","events","inventory"],
+  "dependentRequired":{"source_recording":["bundle"]},
+  "properties":{
+    "schema":{"const":"browser-core.metadata-query/2"},"status":{"const":"ok"},
+    "run_id":{"type":"string","pattern":"^[A-Za-z0-9-]{1,128}$"},
+    "capture":{"const":{"schema":"browser-core.metadata/1","allowlist":"none"}},
+    "reader_runtime":{"type":"object"},"recording_health":{"type":"object"},
+    "inventory":{"$ref":"#/$defs/inventory"},
+    "bundle":{"type":"object","additionalProperties":false,"required":["sha256","expected_digest_matched","authenticity"],"properties":{
+      "sha256":{"$ref":"#/$defs/digest"},"expected_digest_matched":{"type":"boolean"},"authenticity":{"const":"unsigned-exporter-metadata"}}},
+    "source_recording":{"type":"object","additionalProperties":false,
+      "required":["run_id","sha256","bytes","source_bytes","packets","excluded_tail_bytes","source_phase"],"properties":{
+        "run_id":{"type":"string","pattern":"^[A-Za-z0-9-]{1,128}$"},"sha256":{"$ref":"#/$defs/digest"},
+        "bytes":{"$ref":"#/$defs/count"},"source_bytes":{"$ref":"#/$defs/count"},"packets":{"$ref":"#/$defs/count"},"excluded_tail_bytes":{"$ref":"#/$defs/count"},
+        "source_phase":{"enum":["live-prefix","finalized-recording","recovered-prefix","interrupted-recording","limited-recording"]}}},
+    "snapshot":{"type":"object","additionalProperties":false,"required":["sha256","bytes","source_bytes","packets","excluded_tail_bytes","source_phase"],"properties":{
+      "sha256":{"$ref":"#/$defs/digest"},"bytes":{"$ref":"#/$defs/count"},"source_bytes":{"$ref":"#/$defs/count"},"packets":{"$ref":"#/$defs/count"},"excluded_tail_bytes":{"$ref":"#/$defs/count"},
+      "source_phase":{"enum":["live-prefix","finalized-recording","recovered-prefix","interrupted-recording","limited-recording"]}}},
+    "query":{"type":"object","additionalProperties":false,"required":["filters","query_sha256","requested_limit","matching_events","snapshot_max_seq","ordering","returned_events","more_available","output_limited","next_cursor"],"properties":{
+      "filters":{"type":"object"},"query_sha256":{"$ref":"#/$defs/digest"},"requested_limit":{"type":"integer","minimum":1,"maximum":100},"matching_events":{"$ref":"#/$defs/count"},"snapshot_max_seq":{"$ref":"#/$defs/count"},"ordering":{"const":"timestamp-descending-then-sequence-descending"},
+      "returned_events":{"type":"integer","minimum":0,"maximum":100},"more_available":{"type":"boolean"},"output_limited":{"type":"boolean"},"next_cursor":{"type":["string","null"],"maxLength":2048}}},
+    "events":{"type":"array","maxItems":100,"items":{"type":"object","required":["schema","run_id","seq","ts_monotonic_ns","process","event","provenance"],"properties":{"schema":{"const":"browser-core.trace-event/1"}}}},
+    "semantics":{"type":"object","additionalProperties":false,"required":["private_values_included","private_value_records","population","full_snapshot_decode","api_filter","script_id","context_kind","parent_events_may_be_outside_page","continuation_supported","cursor_authenticated","cursor_authorizes_actions","query_launched_browser","active_probe","proves_capture_complete","server_side_architecture_observed"],"properties":{
+      "private_values_included":{"const":false},"private_value_records":{"const":0},"population":{"const":"validated-portable-native-events"},"full_snapshot_decode":{"const":true},"api_filter":{"const":"exact-portable-event-name"},"script_id":{"const":"native-v8-script-number"},"context_kind":{"const":"frame-worker-marker-or-other"},"parent_events_may_be_outside_page":{"const":true},"continuation_supported":{"type":"boolean"},"cursor_authenticated":{"const":false},"cursor_authorizes_actions":{"const":false},"query_launched_browser":{"const":false},"active_probe":{"const":false},"proves_capture_complete":{"const":false},"server_side_architecture_observed":{"const":false}}}
+  },
+  "$defs":{
+    "digest":{"type":"string","pattern":"^[0-9a-f]{64}$"},
+    "count":{"type":"string","pattern":"^(0|[1-9][0-9]{0,18})$"},
+    "apiGroups":{"type":"object","additionalProperties":false,
+      "required":["total_groups","reported_groups","truncated","groups"],"properties":{
+        "total_groups":{"type":"integer","minimum":0},"reported_groups":{"type":"integer","minimum":0,"maximum":16},
+        "truncated":{"type":"boolean"},"groups":{"type":"array","maxItems":16,"items":{
+          "type":"object","additionalProperties":false,"required":["api","events"],"properties":{
+            "api":{"type":"string"},"events":{"$ref":"#/$defs/count"}}}}}},
+    "inventory":{"type":"object","additionalProperties":false,
+      "required":["schema","scope","matching_events","context_kind_counts","contexts","apis","analyst_instrumentation","context_identity_proves_process_isolation","pid_is_recorded_renderer_identity_not_control_authority","source_url_to_script_mapping_established"],
+      "properties":{
+        "schema":{"const":"browser-core.metadata-inventory/1"},"scope":{"const":"all-matching-events-before-pagination"},
+        "matching_events":{"$ref":"#/$defs/count"},
+        "context_kind_counts":{"type":"object","additionalProperties":false,"required":["window","worker","other"],"properties":{
+          "window":{"$ref":"#/$defs/count"},"worker":{"$ref":"#/$defs/count"},"other":{"$ref":"#/$defs/count"}}},
+        "apis":{"$ref":"#/$defs/apiGroups"},
+        "contexts":{"type":"object","additionalProperties":false,"required":["total_groups","reported_groups","truncated","groups"],"properties":{
+          "total_groups":{"type":"integer","minimum":0},"reported_groups":{"type":"integer","minimum":0,"maximum":16},"truncated":{"type":"boolean"},
+          "groups":{"type":"array","maxItems":16,"items":{"type":"object","additionalProperties":false,
+            "required":["pid","context_id","frame_id","worker_id","kind","events","apis"],"properties":{
+              "pid":{"$ref":"#/$defs/count"},"context_id":{"type":"string"},"frame_id":{"type":"string"},"worker_id":{"type":"string"},
+              "kind":{"enum":["window","worker","other"]},"events":{"$ref":"#/$defs/count"},"apis":{"$ref":"#/$defs/apiGroups"}}}}}},
+        "analyst_instrumentation":{"type":"object","additionalProperties":false,
+          "required":["declared_activities","declaration_source","activity_presence","event_ownership","declaration_assigns_events"],"properties":{
+            "declared_activities":{"type":"array","maxItems":3,"uniqueItems":true,"items":{"enum":["browser-control","page-evaluation","source-acquisition"]}},
+            "declaration_source":{"const":"caller"},"activity_presence":{"enum":["declared","unknown"]},
+            "event_ownership":{"const":"unresolved"},"declaration_assigns_events":{"const":false}}},
+        "context_identity_proves_process_isolation":{"const":false},
+        "pid_is_recorded_renderer_identity_not_control_authority":{"const":true},
+        "source_url_to_script_mapping_established":{"const":false}}}
+  }
+}

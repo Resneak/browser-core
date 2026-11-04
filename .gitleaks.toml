@@ -1,0 +1,8 @@
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Explicit overlong malformed credential in a parser rejection test"
+paths = ['''tests/test_control\.py$''']
+regexTarget = "line"
+regexes = ['''\("authenticate", "bc1\.abcdefghijkl\." \+ "a" \* 4096\)''']

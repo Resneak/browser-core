@@ -1,0 +1,88 @@
+diff --git a/services/tracing/public/cpp/startup_tracing_controller.cc b/services/tracing/public/cpp/startup_tracing_controller.cc
+--- a/services/tracing/public/cpp/startup_tracing_controller.cc
++++ b/services/tracing/public/cpp/startup_tracing_controller.cc
+@@ -94,6 +94,7 @@
+ #endif
+ 
+     if (write_mode_ == WriteMode::kLivePeriodic) {
++      live_timed_stop_ = trace_config.duration_ms() != 0;
+       // V1 forgets continuity when an idle writer's already-read chunks are
+       // evicted, then reports ambiguous packet loss on its next packet. The
+       // pinned V2 buffer retains each sequence's consumed chunk identity and
+@@ -113,6 +114,16 @@
+ #endif
+     } else {
+       tracing_session_->Setup(trace_config);
++    }
++
++    if (write_mode_ == WriteMode::kLivePeriodic) {
++      tracing_session_->SetOnErrorCallback(
++          [task_runner = task_runner_,
++           weak_ptr = weak_ptr_factory_.GetWeakPtr()](perfetto::TracingError) {
++            task_runner->PostTask(
++                FROM_HERE,
++                base::BindOnce(&BackgroundTracer::OnLiveTracingError, weak_ptr));
++          });
+     }
+ 
+     tracing_session_->SetOnStopCallback(
+@@ -178,8 +189,26 @@
+     }
+   }
+ 
++  void OnLiveTracingError() {
++    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
++    if (state_ == State::kFinished) {
++      return;
++    }
++    // A disconnected service cannot acknowledge another drain. Close the
++    // retained prefix and cancel queued callbacks; never publish completion.
++    live_tracing_failed_ = true;
++    LOG(ERROR) << "Browser Core recording interrupted by a tracing-service error";
++    Finalise();
++  }
++
+   void OnTracingStopped() {
+     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
++    if (write_mode_ == WriteMode::kLivePeriodic && state_ == State::kTracing &&
++        !live_timed_stop_) {
++      // Managed live sessions have no duration. An unsolicited stop is not a
++      // successful user stop, even if the service supplies no error string.
++      live_tracing_failed_ = true;
++    }
+     // State will be kStopping if Stop() is called and kTracing if tracing
+     // finishes due to a timeout.
+     DCHECK(state_ == State::kStopping || state_ == State::kTracing);
+@@ -393,10 +422,21 @@
+   void Finalise() {
+     DCHECK_NE(state_, State::kFinished);
+     file_.Close();
++    if (write_mode_ == WriteMode::kLivePeriodic) {
++      weak_ptr_factory_.InvalidateWeakPtrs();
++    }
+ 
+     if (write_mode_ == WriteMode::kLivePeriodic &&
+-        (live_write_failed_ || live_limit_reached_)) {
+-      if (live_limit_reached_) {
++        (live_write_failed_ || live_tracing_failed_ || live_limit_reached_)) {
++      if (live_write_failed_ || live_tracing_failed_) {
++        // Publish only after closing every owned writer handle. No strings or
++        // captured values are written to this persistent incomplete marker.
++        base::File marker(output_file_.AddExtension(FILE_PATH_LITERAL("interrupted")),
++                          base::File::FLAG_CREATE | base::File::FLAG_WRITE);
++        if (!marker.IsValid()) {
++          LOG(ERROR) << "Browser Core could not publish its interruption marker";
++        }
++      } else if (live_limit_reached_) {
+         // An empty create-only marker is published only AFTER closing the
+         // original file and acknowledging producer stop. It is never a
+         // completed-trace receipt. The original bound .live file is preserved.
+@@ -472,6 +512,8 @@
+   base::File file_;
+   bool live_read_pending_ = false;
+   bool live_write_failed_ = false;
++  bool live_tracing_failed_ = false;
++  bool live_timed_stop_ = false;
+   bool live_limit_reached_ = false;
+   uint64_t live_byte_limit_ = uint64_t{1024} * 1024 * 1024;
+   uint64_t live_written_bytes_ = 0;

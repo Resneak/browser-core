@@ -1,0 +1,17 @@
+diff --git a/components/embedder_support/user_agent_utils.cc b/components/embedder_support/user_agent_utils.cc
+--- a/components/embedder_support/user_agent_utils.cc
++++ b/components/embedder_support/user_agent_utils.cc
+@@ -215,7 +215,12 @@
+ // depending on the Reduce User-Agent reduction phase features.
+ std::string GetUserAgentInternal() {
+   std::string product = GetProductAndVersion();
+-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(kHeadless)) {
++  // Browser Core evaluation keeps the same engine identity with or without
++  // a visible window. Use the shared native UA path so requests and every
++  // JavaScript realm agree; ordinary Chromium headless mode is unchanged.
++  if (base::CommandLine::ForCurrentProcess()->HasSwitch(kHeadless) &&
++      !base::CommandLine::ForCurrentProcess()->HasSwitch(
++          "browser-core-evaluation")) {
+     product.insert(0, "Headless");
+   }
+ 

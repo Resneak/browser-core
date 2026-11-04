@@ -1,0 +1,291 @@
+diff --git a/content/browser/renderer_host/render_process_host_impl.cc b/content/browser/renderer_host/render_process_host_impl.cc
+--- a/content/browser/renderer_host/render_process_host_impl.cc
++++ b/content/browser/renderer_host/render_process_host_impl.cc
+@@ -3832,8 +3832,10 @@
+   // Propagate the following switches to the renderer command line (along
+   // with any associated values) if present in the browser command line.
+   if (browser_cmd.HasSwitch(kBrowserCoreEvaluationSwitch) &&
+-      browser_cmd.GetSwitchValueASCII("browser-core-inspect-values") == "fingerprint-v1") {
+-    renderer_cmd->AppendSwitchASCII("browser-core-inspect-values", "fingerprint-v1");
++      (browser_cmd.GetSwitchValueASCII("browser-core-inspect-values") == "fingerprint-v1" ||
++       browser_cmd.GetSwitchValueASCII("browser-core-inspect-values") == "fingerprint-v2")) {
++    renderer_cmd->AppendSwitchASCII("browser-core-inspect-values",
++        browser_cmd.GetSwitchValueASCII("browser-core-inspect-values"));
+   }
+ 
+   static const char* const kSwitchNames[] = {
+diff --git a/third_party/blink/renderer/bindings/core/v8/browser_core_binding_observer.cc b/third_party/blink/renderer/bindings/core/v8/browser_core_binding_observer.cc
+--- a/third_party/blink/renderer/bindings/core/v8/browser_core_binding_observer.cc
++++ b/third_party/blink/renderer/bindings/core/v8/browser_core_binding_observer.cc
+@@ -3,7 +3,18 @@
+ // found in the LICENSE file.
+ #include "third_party/blink/renderer/bindings/core/v8/browser_core_binding_observer.h"
+ 
++#include "third_party/blink/renderer/bindings/core/v8/to_v8_traits.h"
++#include "third_party/blink/renderer/bindings/core/v8/v8_image_data.h"
++#include "third_party/blink/renderer/bindings/core/v8/v8_union_float16array_float32array_uint8clampedarray.h"
++#include "third_party/blink/renderer/core/html/canvas/image_data.h"
++
+ #include <array>
++#include <algorithm>
++#include "base/containers/span.h"
++#include <string_view>
++#include <vector>
++#include "base/strings/string_number_conversions.h"
++#include "third_party/blink/renderer/platform/crypto.h"
+ #include <cmath>
+ #include <bit>
+ #include "base/command_line.h"
+@@ -90,17 +101,160 @@
+   }
+   return out;
+ }
++
++// v2 copies bounded native backing storage. No JS indexing/coercion is used.
++base::DictValue ObserveExtended(v8::Isolate* isolate,
++                               v8::Local<v8::Value> value,
++                               bool string_sequence) {
++  if (!value.IsEmpty() && value->IsString() &&
++      value.As<v8::String>()->Length() > 1024 &&
++      value.As<v8::String>()->Length() <= 262144) {
++    auto string = value.As<v8::String>();
++    std::vector<char> bytes(static_cast<size_t>(string->Length()) * 4);
++    const size_t length = string->WriteUtf8(isolate, bytes.data(), bytes.size());
++    DigestValue digest;
++    if (!ComputeDigest(kHashAlgorithmSha256,
++          base::as_byte_span(std::string_view(bytes.data(), length)), digest))
++      return Observe(isolate, value, true);
++    base::DictValue out;
++    out.Set("type", "string");
++    out.Set("length", string->Length());
++    out.Set("byte_length", static_cast<int>(length));
++    out.Set("sha256", base::HexEncodeLower(digest));
++    // Limit by UTF-8 boundary rather than cutting through a code point.
++    size_t prefix = std::min(length, size_t{256});
++    while (prefix && prefix < length &&
++           (static_cast<unsigned char>(bytes[prefix]) & 0xc0) == 0x80) --prefix;
++    out.Set("prefix", std::string(bytes.data(), prefix));
++    return out;
++  }
++  if (!value.IsEmpty() && (value->IsInt32Array() || value->IsFloat32Array() ||
++      value->IsFloat64Array() || value->IsUint8Array() || value->IsUint8ClampedArray())) {
++    auto array = value.As<v8::TypedArray>();
++    base::DictValue out;
++    out.Set("type", value->IsInt32Array() ? "Int32Array" :
++        value->IsFloat32Array() ? "Float32Array" :
++        value->IsFloat64Array() ? "Float64Array" :
++        value->IsUint8ClampedArray() ? "Uint8ClampedArray" : "Uint8Array");
++    out.Set("length", static_cast<double>(array->Length()));
++    auto buffer = array->Buffer();
++    const size_t byte_length = array->ByteLength();
++    if (buffer->WasDetached() || buffer->GetBackingStore()->IsShared() ||
++        byte_length > 1024 * 1024) {
++      out.Set("omitted", "buffer-not-readable-or-length-limit");
++      return out;
++    }
++    std::vector<uint8_t> bytes(byte_length);
++    if (array->CopyContents(bytes.data(), byte_length) != byte_length) {
++      out.Set("omitted", "buffer-changed");
++      return out;
++    }
++    const size_t size = value->IsFloat64Array() ? 8 :
++        value->IsUint8Array() || value->IsUint8ClampedArray() ? 1 : 4;
++    base::ListValue values;
++    for (size_t i = 0; i < std::min(array->Length(), size_t{64}); ++i) {
++      double number;
++      if (size == 1) number = bytes[i];
++      else if (value->IsInt32Array()) {
++        int32_t item = 0;
++        base::byte_span_from_ref(item).copy_from(base::span(bytes).subspan(i * size, size));
++        number = item;
++      } else if (value->IsFloat32Array()) {
++        float item = 0;
++        base::byte_span_from_ref(base::allow_nonunique_obj, item).copy_from(
++            base::span(bytes).subspan(i * size, size));
++        number = item;
++      } else {
++        base::byte_span_from_ref(base::allow_nonunique_obj, number).copy_from(
++            base::span(bytes).subspan(i * size, size));
++      }
++      values.Append(Number(number));
++    }
++    if (array->Length() <= 64) {
++      out.Set("values", std::move(values));
++    } else {
++      DigestValue digest;
++      if (!ComputeDigest(kHashAlgorithmSha256, bytes, digest)) {
++        out.Set("omitted", "buffer-changed");
++        return out;
++      }
++      out.Set("byte_length", static_cast<int>(byte_length));
++      out.Set("sha256", base::HexEncodeLower(digest));
++      out.Set("prefix_values", std::move(values));
++    }
++    return out;
++  }
++  if (string_sequence && !value.IsEmpty() && value->IsArray() && !value->IsProxy()) {
++    auto array = value.As<v8::Array>();
++    base::DictValue out;
++    out.Set("type", "string-array");
++    out.Set("length", static_cast<double>(array->Length()));
++    if (array->Length() > 64) {
++      out.Set("omitted", "length-limit");
++      return out;
++    }
++    base::ListValue values;
++    size_t utf8_bytes = 0;
++    const auto context = isolate->GetCurrentContext();
++    const auto value_key = v8::String::NewFromUtf8Literal(isolate, "value");
++    for (uint32_t i = 0; i < array->Length(); ++i) {
++      const auto key = v8::String::NewFromUtf8(isolate, std::to_string(i).c_str()).ToLocalChecked();
++      v8::Local<v8::Value> descriptor, item;
++      // A native array's own descriptors do not call accessors. Never use
++      // indexed Get on the returned array or look up an inherited value.
++      if (!array->GetOwnPropertyDescriptor(context, key).ToLocal(&descriptor) ||
++          !descriptor->IsObject() || descriptor->IsProxy() ||
++          !descriptor.As<v8::Object>()->HasOwnProperty(context, value_key).FromMaybe(false) ||
++          !descriptor.As<v8::Object>()->Get(context, value_key).ToLocal(&item) ||
++          !item->IsString() || item.As<v8::String>()->Length() > 128) {
++        out.Set("omitted", "not-own-string-data");
++        return out;
++      }
++      std::array<char, 512> bytes;
++      utf8_bytes += item.As<v8::String>()->WriteUtf8(isolate, bytes.data(), bytes.size());
++      if (utf8_bytes > 4096) {
++        out.Set("omitted", "length-limit");
++        return out;
++      }
++      values.Append(Observe(isolate, item, true));
++    }
++    out.Set("values", std::move(values));
++    return out;
++  }
++  return Observe(isolate, value, true);
++}
++
++// Chromium exposes ordinary Uint8ClampedArray pixels as an own data property,
++// bypassing the generated getter. Capture the known native method result at
++// return time without replacing that property or performing any JS field read.
++base::DictValue ObserveImageData(v8::Isolate* isolate,
++                                v8::Local<v8::Value> value) {
++  if (value.IsEmpty()) return Observe(isolate, value, true);
++  auto* image = V8ImageData::ToWrappable(isolate, value);
++  if (!image) return Observe(isolate, value, true);
++  auto* state = ScriptState::ForRelevantRealm(isolate, value.As<v8::Object>());
++  const auto data = ToV8Traits<V8ImageDataArray>::ToV8(state, image->data());
++  base::DictValue out;
++  out.Set("type", "ImageData");
++  out.Set("width", static_cast<int>(image->width()));
++  out.Set("height", static_cast<int>(image->height()));
++  out.Set("data", ObserveExtended(isolate, data, false));
++  return out;
++}
+ }  // namespace
+ 
+ BrowserCoreBindingObserver::BrowserCoreBindingObserver(const char* api,
+-    const v8::FunctionCallbackInfo<v8::Value>& info, bool parameter)
++    const v8::FunctionCallbackInfo<v8::Value>& info, int parameter_count, bool extended_only)
+     : api_(api), info_(info) {
+-  static const bool requested = [] {
++  static const int version = [] {
+     const auto* command = base::CommandLine::ForCurrentProcess();
+-    return command->HasSwitch("browser-core-evaluation") &&
+-        command->GetSwitchValueASCII("browser-core-inspect-values") == "fingerprint-v1";
++    if (!command->HasSwitch("browser-core-evaluation")) return 0;
++    const auto requested = command->GetSwitchValueASCII("browser-core-inspect-values");
++    return requested == "fingerprint-v2" ? 2 : requested == "fingerprint-v1" ? 1 : 0;
+   }();
+-  if (!requested || !TRACE_EVENT_CATEGORY_ENABLED("browser_core.debug")) return;
++  if (!version || (extended_only && version < 2) ||
++      !TRACE_EVENT_CATEGORY_ENABLED("browser_core.debug")) return;
++  extended_ = version == 2;
+   auto* isolate = info.GetIsolate();
+   if (!isolate->InContext() || isolate->HasPendingException()) return;
+   v8::HandleScope handles(isolate);
+@@ -113,7 +267,8 @@
+   realm_id_ = state->World().GetWorldId();
+   script_id_ = v8::StackTrace::CurrentScriptId(isolate);
+   base::ListValue parameters;
+-  if (parameter && info.Length() > 0) parameters.Append(Observe(isolate, info[0], false));
++  for (int i = 0; i < std::min(parameter_count, info.Length()); ++i)
++    parameters.Append(Observe(isolate, info[i], false));
+   // Getter extras and WebGL arguments beyond pname are ignored by the native
+   // APIs. Retain the count, never unrelated values supplied by page code.
+   base::DictValue input;
+@@ -134,11 +289,21 @@
+     result.Set("omitted", "exception");
+   } else {
+     v8::HandleScope handles(isolate);
+-    result = Observe(isolate, info_.GetReturnValue().Get(), true);
++    const std::string_view api(api_);
++    const bool sequence = api == "Navigator.languages.get" || api == "WorkerNavigator.languages.get" ||
++        api == "WebGLRenderingContext.getSupportedExtensions" || api == "WebGL2RenderingContext.getSupportedExtensions";
++    if (extended_ && (api == "CanvasRenderingContext2D.getImageData" ||
++                      api == "OffscreenCanvasRenderingContext2D.getImageData")) {
++      result = ObserveImageData(isolate, info_.GetReturnValue().Get());
++    } else {
++      result = extended_ ? ObserveExtended(isolate, info_.GetReturnValue().Get(), sequence) :
++          Observe(isolate, info_.GetReturnValue().Get(), true);
++    }
+   }
+   const std::string output = base::WriteJson(result).value_or("{}");
+   TRACE_EVENT_INSTANT("browser_core.debug", "BrowserCoreInspection.BindingValue",
+-      "schema", "browser-core.inspection/1", "api", api_, "allowlist", "fingerprint-v1",
++      "schema", extended_ ? "browser-core.inspection/2" : "browser-core.inspection/1",
++      "api", api_, "allowlist", extended_ ? "fingerprint-v2" : "fingerprint-v1",
+       "context_id", context_id_, "context_kind", context_kind_,
+       "realm_id", realm_id_, "script_id", script_id_,
+       "completion", exception ? "exception" : "returned",
+diff --git a/third_party/blink/renderer/bindings/core/v8/browser_core_binding_observer.h b/third_party/blink/renderer/bindings/core/v8/browser_core_binding_observer.h
+--- a/third_party/blink/renderer/bindings/core/v8/browser_core_binding_observer.h
++++ b/third_party/blink/renderer/bindings/core/v8/browser_core_binding_observer.h
+@@ -10,14 +10,14 @@
+ #include "v8/include/v8.h"
+ 
+ namespace blink {
+-// Only generated callbacks in the fixed fingerprint-v1 allowlist create this
++// Only generated callbacks in the versioned fingerprint allowlists create this
+ // scope. Observe the original input and the already-set return slot. Never
+ // invoke a getter, enumerate an object, coerce a value, or change the result.
+ class CORE_EXPORT BrowserCoreBindingObserver final {
+   STACK_ALLOCATED();
+  public:
+   BrowserCoreBindingObserver(const char* api,
+-      const v8::FunctionCallbackInfo<v8::Value>& info, bool parameter);
++      const v8::FunctionCallbackInfo<v8::Value>& info, int parameter_count, bool extended_only = false);
+   ~BrowserCoreBindingObserver();
+   BrowserCoreBindingObserver(const BrowserCoreBindingObserver&) = delete;
+   BrowserCoreBindingObserver& operator=(const BrowserCoreBindingObserver&) = delete;
+@@ -25,6 +25,7 @@
+   const char* api_;
+   const v8::FunctionCallbackInfo<v8::Value>& info_;
+   bool enabled_ = false;
++  bool extended_ = false;
+   int script_id_ = 0;
+   int realm_id_ = 0;
+   const char* context_kind_ = "unknown";
+diff --git a/third_party/blink/renderer/bindings/scripts/bind_gen/interface.py b/third_party/blink/renderer/bindings/scripts/bind_gen/interface.py
+--- a/third_party/blink/renderer/bindings/scripts/bind_gen/interface.py
++++ b/third_party/blink/renderer/bindings/scripts/bind_gen/interface.py
+@@ -7675,12 +7675,18 @@
+                 and cg_context.attribute.identifier in screen_getters)))
+     parameter = logging_id in (
+         "WebGLRenderingContext.getParameter", "WebGL2RenderingContext.getParameter")
+-    if not (allowed_getter or parameter):
++    extended_getters = {'ImageData': ('data', 'width', 'height', 'colorSpace', 'pixelFormat'), 'TextMetrics': ('width', 'actualBoundingBoxLeft', 'actualBoundingBoxRight', 'fontBoundingBoxAscent', 'fontBoundingBoxDescent', 'actualBoundingBoxAscent', 'actualBoundingBoxDescent', 'emHeightAscent', 'emHeightDescent', 'hangingBaseline', 'alphabeticBaseline', 'ideographicBaseline'), 'WebGLShaderPrecisionFormat': ('rangeMin', 'rangeMax', 'precision'), 'BaseAudioContext': ('sampleRate', 'currentTime', 'state'), 'AudioBuffer': ('sampleRate', 'length', 'duration', 'numberOfChannels'), 'MediaQueryList': ('matches', 'media'), 'ScreenOrientation': ('type', 'angle')}
++    extended_methods = {'HTMLCanvasElement.toDataURL': 2, 'CanvasRenderingContext2D.getImageData': 4, 'OffscreenCanvasRenderingContext2D.getImageData': 4, 'CanvasRenderingContext2D.measureText': 1, 'OffscreenCanvasRenderingContext2D.measureText': 1, 'WebGLRenderingContext.getSupportedExtensions': 0, 'WebGL2RenderingContext.getSupportedExtensions': 0, 'WebGLRenderingContext.getShaderPrecisionFormat': 2, 'WebGL2RenderingContext.getShaderPrecisionFormat': 2, 'AudioBuffer.getChannelData': 1}
++    extended_getter = (cg_context.attribute_get and
++        cg_context.attribute.identifier in extended_getters.get(cg_context.class_like.identifier, ()))
++    extended_only = not (allowed_getter or parameter)
++    if not (allowed_getter or parameter or extended_getter or logging_id in extended_methods):
+         return None
++    parameter_count = 1 if parameter else extended_methods.get(logging_id, 0)
+     assert cg_context.v8_callback_type == CodeGenContext.V8_FUNCTION_CALLBACK
+     observer = TextNode(
+-        'BrowserCoreBindingObserver browser_core_observer("{}", ${{info}}, {});'
+-        .format(logging_id, "true" if parameter else "false"))
++        'BrowserCoreBindingObserver browser_core_observer("{}", ${{info}}, {}, {});'
++        .format(logging_id, parameter_count, "true" if extended_only else "false"))
+     observer.accumulate(CodeGenAccumulator.require_include_headers([
+         "third_party/blink/renderer/bindings/core/v8/browser_core_binding_observer.h"
+     ]))

@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Browser Core runtime demo</title>
+<style>body{font:18px system-ui;max-width:800px;margin:64px auto;padding:24px;line-height:1.6}pre{white-space:pre-wrap;background:#f2f4f7;padding:24px;border-radius:12px}</style>
+<h1>What did the generated code do?</h1>
+<p>This page creates a function at runtime, reads a device property inside a worker,
+and tries a fetch with a relative URL inside a blob worker. The last call fails
+before a request is sent. A recorded API call is not a network outcome.</p>
+<pre id="result">Running…</pre>
+<script>
+(async () => {
+  const generated = new Function(`
+    const canvas = document.createElement('canvas');
+    canvas.getContext('2d').fillText('runtime demo', 2, 12);
+    return { canvasLength: canvas.toDataURL().length, cores: navigator.hardwareConcurrency };
+  `);
+  const page = generated();
+  const workerSource = `
+    const size = eval('[1, 2, 3].length');
+    const cores = navigator.hardwareConcurrency;
+    crypto.subtle.digest('SHA-256', new Uint8Array(size)).then(async () => {
+      let fetchResult;
+      try { await fetch('/not-sent-from-blob'); fetchResult = 'unexpected success'; }
+      catch (_) { fetchResult = 'call made, URL rejected'; }
+      postMessage({size, cores, fetchResult});
+      close();
+    });
+  `;
+  const blob = URL.createObjectURL(new Blob([workerSource], {type:'text/javascript'}));
+  const worker = new Worker(blob);
+  const result = await new Promise((resolve, reject) => {
+    worker.onmessage = event => resolve(event.data);
+    worker.onerror = reject;
+  });
+  URL.revokeObjectURL(blob);
+  document.getElementById('result').textContent = JSON.stringify({page, worker:result}, null, 2);
+  document.title = 'Browser Core demo complete';
+})();
+</script>
+</html>

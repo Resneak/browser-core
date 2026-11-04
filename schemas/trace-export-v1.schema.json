@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "browser-core.trace-export/1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "run_id", "chromium_revision", "source_trace", "normalized_trace"
+  ],
+  "properties": {
+    "schema": {"const": "browser-core.trace-export/1"},
+    "run_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "chromium_revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "source_trace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format", "bytes", "sha256"],
+      "properties": {
+        "format": {"const": "perfetto-trace"},
+        "bytes": {"type": "integer", "minimum": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "normalized_trace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema", "bytes", "sha256", "events", "trace_categories",
+        "category_provenance"
+      ],
+      "properties": {
+        "schema": {"const": "browser-core.trace-event/1"},
+        "bytes": {"type": "integer", "minimum": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "events": {"type": "integer", "minimum": 1},
+        "trace_categories": {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "browser_core.debug": {"type": "integer", "minimum": 1},
+            "browser_core.stream": {"type": "integer", "minimum": 1},
+            "blink.bindings": {"type": "integer", "minimum": 1},
+            "blink.bindings.encoding": {"type": "integer", "minimum": 1}
+          }
+        },
+        "category_provenance": {"const": "complete"}
+      }
+    }
+  }
+}

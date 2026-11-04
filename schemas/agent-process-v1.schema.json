@@ -1,0 +1,910 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:browser-core:agent-process:1",
+  "description": "Direct creator transport metadata; child-reported shutdown is not independent host verification. Python also enforces temporal and ownership rules.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "creation_requested",
+    "creation_pending",
+    "transport_created",
+    "ready_for_start",
+    "start_attempted",
+    "stop_requested",
+    "stdin_close_requested",
+    "force_stop_requested",
+    "force_stop_attempted",
+    "creator_exit_observed",
+    "connection_closed",
+    "output_released",
+    "succeeded",
+    "transport_error",
+    "timeout_stage",
+    "channel"
+  ],
+  "properties": {
+    "schema": {
+      "const": "browser-core.agent-process/1"
+    },
+    "creation_requested": {
+      "type": "boolean"
+    },
+    "creation_pending": {
+      "type": "boolean"
+    },
+    "transport_created": {
+      "type": "boolean"
+    },
+    "ready_for_start": {
+      "type": "boolean"
+    },
+    "start_attempted": {
+      "type": "boolean"
+    },
+    "stop_requested": {
+      "type": "boolean"
+    },
+    "stdin_close_requested": {
+      "type": "boolean"
+    },
+    "force_stop_requested": {
+      "type": "boolean"
+    },
+    "force_stop_attempted": {
+      "type": "boolean"
+    },
+    "creator_exit_observed": {
+      "type": "boolean"
+    },
+    "connection_closed": {
+      "type": "boolean"
+    },
+    "output_released": {
+      "type": "boolean"
+    },
+    "succeeded": {
+      "type": "boolean"
+    },
+    "transport_error": {
+      "enum": [
+        null,
+        "unexpected-transport",
+        "invalid-pipe-data",
+        "invalid-output",
+        "output-overflow",
+        "stderr-output",
+        "unsolicited-start",
+        "pipe-read-failed",
+        "pipe-write-failed",
+        "incomplete-output",
+        "stdin-closed",
+        "connection-failed",
+        "invalid-protocol-setup",
+        "incomplete-pipe-setup",
+        "creation-cancelled",
+        "creation-failed",
+        "caller-cancelled",
+        "pipe-close-failed",
+        "creator-kill-failed"
+      ]
+    },
+    "timeout_stage": {
+      "enum": [
+        null,
+        "open",
+        "start",
+        "close",
+        "force-stop"
+      ]
+    },
+    "channel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "stdout",
+        "stderr",
+        "events_seen",
+        "ready",
+        "closed",
+        "protocol_error",
+        "exit_code",
+        "completion_verified",
+        "succeeded"
+      ],
+      "properties": {
+        "schema": {
+          "const": "browser-core.agent-channel-receipt/1"
+        },
+        "stdout": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "observed_bytes",
+            "prefix_bytes",
+            "prefix_sha256",
+            "overflow",
+            "eof",
+            "read_error",
+            "prefix_is_complete_stream"
+          ],
+          "properties": {
+            "observed_bytes": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "prefix_bytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 49152
+            },
+            "prefix_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "overflow": {
+              "type": "boolean"
+            },
+            "eof": {
+              "type": "boolean"
+            },
+            "read_error": {
+              "type": "boolean"
+            },
+            "prefix_is_complete_stream": {
+              "type": "boolean"
+            }
+          }
+        },
+        "stderr": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "observed_bytes",
+            "prefix_bytes",
+            "prefix_sha256",
+            "overflow",
+            "eof",
+            "read_error",
+            "prefix_is_complete_stream"
+          ],
+          "properties": {
+            "observed_bytes": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "prefix_bytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 16384
+            },
+            "prefix_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "overflow": {
+              "type": "boolean"
+            },
+            "eof": {
+              "type": "boolean"
+            },
+            "read_error": {
+              "type": "boolean"
+            },
+            "prefix_is_complete_stream": {
+              "type": "boolean"
+            }
+          }
+        },
+        "events_seen": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3
+        },
+        "ready": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "schema",
+                "event",
+                "run_id",
+                "session_file",
+                "profile_id",
+                "created_profile",
+                "profile_retained_on_exit"
+              ],
+              "properties": {
+                "schema": {
+                  "const": "browser-core.agent-research/1"
+                },
+                "event": {
+                  "const": "ready"
+                },
+                "run_id": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+                },
+                "session_file": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096,
+                  "pattern": "^[^\\u0000-\\u001f]+$"
+                },
+                "profile_id": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+                },
+                "created_profile": {
+                  "type": "boolean"
+                },
+                "profile_retained_on_exit": {
+                  "const": true
+                }
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "closed": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "schema",
+                "event",
+                "status",
+                "code",
+                "launch_attempted",
+                "session_received",
+                "cleanup_verified",
+                "cleanup_error",
+                "shutdown"
+              ],
+              "properties": {
+                "schema": {
+                  "const": "browser-core.agent-research/1"
+                },
+                "event": {
+                  "const": "closed"
+                },
+                "status": {
+                  "enum": [
+                    "ok",
+                    "error",
+                    "interrupted"
+                  ]
+                },
+                "code": {
+                  "enum": [
+                    "input-closed",
+                    "stopped",
+                    "cancelled-before-start",
+                    "invalid-options",
+                    "input-unavailable",
+                    "command-too-large",
+                    "invalid-command",
+                    "output-unavailable",
+                    "invalid-session-handoff",
+                    "interrupted",
+                    "launch-failed",
+                    "internal-error"
+                  ]
+                },
+                "launch_attempted": {
+                  "type": "boolean"
+                },
+                "session_received": {
+                  "type": "boolean"
+                },
+                "cleanup_verified": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "cleanup_error": {
+                  "enum": [
+                    null,
+                    "cleanup-failed",
+                    "cleanup-interrupted"
+                  ]
+                },
+                "shutdown": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "run_id",
+                        "state",
+                        "running",
+                        "identity_protected"
+                      ],
+                      "properties": {
+                        "run_id": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+                        },
+                        "state": {
+                          "const": "stopped"
+                        },
+                        "running": {
+                          "const": false
+                        },
+                        "identity_protected": {
+                          "const": true
+                        },
+                        "shutdown_mode": {
+                          "enum": [
+                            "graceful",
+                            "forced",
+                            "exited-before-force"
+                          ]
+                        }
+                      }
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {
+                      "session_received": {
+                        "const": true
+                      }
+                    },
+                    "required": [
+                      "session_received"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "launch_attempted": {
+                        "const": true
+                      },
+                      "cleanup_verified": {
+                        "type": "boolean"
+                      }
+                    }
+                  },
+                  "else": {
+                    "properties": {
+                      "cleanup_verified": {
+                        "const": null
+                      },
+                      "cleanup_error": {
+                        "const": null
+                      },
+                      "shutdown": {
+                        "const": null
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "cleanup_verified": {
+                        "const": true
+                      }
+                    },
+                    "required": [
+                      "cleanup_verified"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "cleanup_error": {
+                        "const": null
+                      },
+                      "shutdown": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "run_id",
+                          "state",
+                          "running",
+                          "identity_protected"
+                        ],
+                        "properties": {
+                          "run_id": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+                          },
+                          "state": {
+                            "const": "stopped"
+                          },
+                          "running": {
+                            "const": false
+                          },
+                          "identity_protected": {
+                            "const": true
+                          },
+                          "shutdown_mode": {
+                            "enum": [
+                              "graceful",
+                              "forced",
+                              "exited-before-force"
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "cleanup_verified": {
+                        "const": false
+                      }
+                    },
+                    "required": [
+                      "cleanup_verified"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "cleanup_error": {
+                        "enum": [
+                          "cleanup-failed",
+                          "cleanup-interrupted"
+                        ]
+                      },
+                      "shutdown": {
+                        "const": null
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "code": {
+                        "enum": [
+                          "cancelled-before-start",
+                          "invalid-options"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "code"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "launch_attempted": {
+                        "const": false
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "code": {
+                        "enum": [
+                          "stopped",
+                          "invalid-session-handoff"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "code"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "session_received": {
+                        "const": true
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "code": {
+                        "const": "launch-failed"
+                      }
+                    },
+                    "required": [
+                      "code"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "launch_attempted": {
+                        "const": true
+                      },
+                      "session_received": {
+                        "const": false
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "code": {
+                        "const": "input-closed"
+                      },
+                      "launch_attempted": {
+                        "const": true
+                      }
+                    },
+                    "required": [
+                      "code",
+                      "launch_attempted"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "session_received": {
+                        "const": true
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "cleanup_error": {
+                        "const": "cleanup-interrupted"
+                      }
+                    },
+                    "required": [
+                      "cleanup_error"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "status": {
+                        "const": "interrupted"
+                      }
+                    }
+                  },
+                  "else": {
+                    "if": {
+                      "properties": {
+                        "cleanup_error": {
+                          "const": "cleanup-failed"
+                        }
+                      },
+                      "required": [
+                        "cleanup_error"
+                      ]
+                    },
+                    "then": {
+                      "properties": {
+                        "status": {
+                          "const": "error"
+                        }
+                      }
+                    },
+                    "else": {
+                      "if": {
+                        "properties": {
+                          "code": {
+                            "const": "interrupted"
+                          }
+                        },
+                        "required": [
+                          "code"
+                        ]
+                      },
+                      "then": {
+                        "properties": {
+                          "status": {
+                            "const": "interrupted"
+                          }
+                        }
+                      },
+                      "else": {
+                        "if": {
+                          "properties": {
+                            "code": {
+                              "enum": [
+                                "input-closed",
+                                "stopped",
+                                "cancelled-before-start"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "code"
+                          ]
+                        },
+                        "then": {
+                          "properties": {
+                            "status": {
+                              "const": "ok"
+                            }
+                          }
+                        },
+                        "else": {
+                          "properties": {
+                            "status": {
+                              "const": "error"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "protocol_error": {
+          "enum": [
+            null,
+            "stdout-overflow",
+            "event-too-large",
+            "too-many-events",
+            "invalid-event",
+            "partial-event",
+            "exit-status-mismatch"
+          ]
+        },
+        "exit_code": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": -2147483648,
+              "maximum": 4294967295
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "completion_verified": {
+          "type": "boolean"
+        },
+        "succeeded": {
+          "type": "boolean"
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "creation_pending": {
+            "const": true
+          }
+        },
+        "required": [
+          "creation_pending"
+        ]
+      },
+      "then": {
+        "properties": {
+          "creation_requested": {
+            "const": true
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "transport_created": {
+            "const": true
+          }
+        },
+        "required": [
+          "transport_created"
+        ]
+      },
+      "then": {
+        "properties": {
+          "creation_requested": {
+            "const": true
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "connection_closed": {
+            "const": true
+          }
+        },
+        "required": [
+          "connection_closed"
+        ]
+      },
+      "then": {
+        "properties": {
+          "transport_created": {
+            "const": true
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "force_stop_attempted": {
+            "const": true
+          }
+        },
+        "required": [
+          "force_stop_attempted"
+        ]
+      },
+      "then": {
+        "properties": {
+          "force_stop_requested": {
+            "const": true
+          },
+          "transport_created": {
+            "const": true
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "output_released": {
+            "const": true
+          }
+        },
+        "required": [
+          "output_released"
+        ]
+      },
+      "then": {
+        "properties": {
+          "creator_exit_observed": {
+            "const": true
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "ready_for_start": {
+            "const": true
+          }
+        },
+        "required": [
+          "ready_for_start"
+        ]
+      },
+      "then": {
+        "properties": {
+          "creation_requested": {
+            "const": true
+          },
+          "transport_created": {
+            "const": true
+          },
+          "start_attempted": {
+            "const": false
+          },
+          "stop_requested": {
+            "const": false
+          },
+          "connection_closed": {
+            "const": false
+          },
+          "creator_exit_observed": {
+            "const": false
+          },
+          "transport_error": {
+            "const": null
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "succeeded": {
+            "const": true
+          }
+        },
+        "required": [
+          "succeeded"
+        ]
+      },
+      "then": {
+        "properties": {
+          "creation_pending": {
+            "const": false
+          },
+          "creator_exit_observed": {
+            "const": true
+          },
+          "connection_closed": {
+            "const": true
+          },
+          "transport_error": {
+            "const": null
+          },
+          "timeout_stage": {
+            "const": null
+          },
+          "force_stop_requested": {
+            "const": false
+          },
+          "output_released": {
+            "const": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "creator_exit_observed": {
+            "const": true
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "channel": {
+            "properties": {
+              "exit_code": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "channel": {
+            "properties": {
+              "exit_code": {
+                "const": null
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "succeeded": {
+            "const": true
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "channel": {
+            "properties": {
+              "succeeded": {
+                "const": true
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

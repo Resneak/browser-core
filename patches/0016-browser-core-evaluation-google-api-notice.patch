@@ -1,0 +1,17 @@
+diff --git a/chrome/browser/ui/startup/infobar_utils.cc b/chrome/browser/ui/startup/infobar_utils.cc
+--- a/chrome/browser/ui/startup/infobar_utils.cc
++++ b/chrome/browser/ui/startup/infobar_utils.cc
+@@ -199,7 +199,12 @@
+   infobars::ContentInfoBarManager* infobar_manager =
+       infobars::ContentInfoBarManager::FromWebContents(web_contents);
+ 
+-  if (!google_apis::HasAPIKeyConfigured()) {
++  // Core evaluation has no Google account integration. This startup-only
++  // notice consumes space in the first tab but not subsequent research tabs.
++  // Keep native content geometry consistent across those tabs; ordinary
++  // Chromium and its other startup notices retain their existing behavior.
++  if (!google_apis::HasAPIKeyConfigured() &&
++      !startup_command_line.HasSwitch("browser-core-evaluation")) {
+     if (infobars::IsInfoBarMigrated(
+             infobars::InfoBarDelegate::GOOGLE_API_KEYS_INFOBAR_DELEGATE)) {
+       if (auto* manager =

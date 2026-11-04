@@ -1,0 +1,32 @@
+diff --git a/third_party/blink/renderer/platform/instrumentation/browser_core_message_dispatch_context.h b/third_party/blink/renderer/platform/instrumentation/browser_core_message_dispatch_context.h
+--- a/third_party/blink/renderer/platform/instrumentation/browser_core_message_dispatch_context.h
++++ b/third_party/blink/renderer/platform/instrumentation/browser_core_message_dispatch_context.h
+@@ -6,6 +6,7 @@
+ #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_INSTRUMENTATION_BROWSER_CORE_MESSAGE_DISPATCH_CONTEXT_H_
+ 
+ #include <cstdint>
++#include <string>
+ #include <string_view>
+ 
+ namespace blink {
+@@ -21,9 +22,10 @@ class BrowserCoreMessageDispatchScope final {
+   BrowserCoreMessageDispatchScope(std::uintptr_t event,
+                                   std::string_view native_id)
+       : previous_event_(g_browser_core_message_dispatch_event),
+-        previous_id_(g_browser_core_message_dispatch_id) {
++        previous_id_(g_browser_core_message_dispatch_id),
++        dispatch_id_(native_id) {
+     g_browser_core_message_dispatch_event = event;
+-    g_browser_core_message_dispatch_id = native_id;
++    g_browser_core_message_dispatch_id = dispatch_id_;
+   }
+ 
+   BrowserCoreMessageDispatchScope(const BrowserCoreMessageDispatchScope&) =
+@@ -44,6 +46,7 @@ class BrowserCoreMessageDispatchScope final {
+  private:
+   std::uintptr_t previous_event_;
+   std::string_view previous_id_;
++  std::string dispatch_id_;
+ };
+ 
+ inline std::uintptr_t CurrentBrowserCoreMessageDispatchEvent() {

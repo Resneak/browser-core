@@ -1,0 +1,154 @@
+diff --git a/src/tracing/service/trace_buffer_v1.cc b/src/tracing/service/trace_buffer_v1.cc
+--- a/src/tracing/service/trace_buffer_v1.cc
++++ b/src/tracing/service/trace_buffer_v1.cc
+@@ -44,6 +44,11 @@
+     SharedMemoryABI::ChunkHeader::kChunkNeedsPatching;
+ }  // namespace.
+ 
++// Browser Core read diagnostics: bounded budgets so one reproduction cannot
++// flood the log. Metadata only (ids and fragment counts), no payload.
++static uint32_t g_browser_core_stop_logs = 0;
++static uint32_t g_browser_core_reject_logs = 0;
++
+ // static
+ std::unique_ptr<TraceBufferV1> TraceBufferV1::Create(size_t size_in_bytes,
+                                                      OverwritePolicy pol) {
+@@ -159,6 +164,13 @@
+                           prev->size != record_size ||
+                           prev->num_fragments > num_fragments ||
+                           (prev->flags & chunk_flags) != prev->flags)) {
++      if (g_browser_core_reject_logs < 100) {
++        ++g_browser_core_reject_logs;
++        PERFETTO_ELOG("Browser Core copy reject recommit: p=%u w=%u chunk=%u "
++                      "frag=%u",
++                      producer_id_trusted, writer_id, chunk_id,
++                      num_fragments);
++      }
+       stats_.set_abi_violations(stats_.abi_violations() + 1);
+       PERFETTO_DCHECK(suppress_client_dchecks_for_testing_);
+       return;
+@@ -187,6 +199,13 @@
+     const auto subsequent_it = index_.find(subsequent_key);
+     if (subsequent_it != index_.end() &&
+         subsequent_it->second.num_fragments_read > 0) {
++      if (g_browser_core_reject_logs < 100) {
++        ++g_browser_core_reject_logs;
++        PERFETTO_ELOG("Browser Core copy reject subsequent-read: p=%u w=%u chunk=%u "
++                      "frag=%u",
++                      producer_id_trusted, writer_id, chunk_id,
++                      num_fragments);
++      }
+       stats_.set_abi_violations(stats_.abi_violations() + 1);
+       PERFETTO_DCHECK(suppress_client_dchecks_for_testing_);
+       return;
+@@ -194,6 +213,13 @@
+ 
+     // We should not have read past the last packet.
+     if (record_meta->num_fragments_read > prev->num_fragments) {
++      if (g_browser_core_reject_logs < 100) {
++        ++g_browser_core_reject_logs;
++        PERFETTO_ELOG("Browser Core copy reject over-read: p=%u w=%u chunk=%u "
++                      "frag=%u",
++                      producer_id_trusted, writer_id, chunk_id,
++                      num_fragments);
++      }
+       PERFETTO_ELOG(
+           "TraceBufferV1 read too many fragments from an incomplete chunk");
+       PERFETTO_DCHECK(suppress_client_dchecks_for_testing_);
+@@ -241,6 +267,13 @@
+         resume.num_fragments_read > num_fragments ||
+         (resume.num_fragments_read > 0 && resume.cur_fragment_offset == 0) ||
+         resume.cur_fragment_offset > record_size - sizeof(ChunkRecord)) {
++      if (g_browser_core_reject_logs < 100) {
++        ++g_browser_core_reject_logs;
++        PERFETTO_ELOG("Browser Core copy reject evicted-invalid: p=%u w=%u chunk=%u "
++                      "frag=%u",
++                      producer_id_trusted, writer_id, chunk_id,
++                      num_fragments);
++      }
+       stats_.set_abi_violations(stats_.abi_violations() + 1);
+       PERFETTO_DCHECK(suppress_client_dchecks_for_testing_);
+       return;
+@@ -250,6 +283,13 @@
+     const auto subsequent = index_.find(subsequent_key);
+     if (subsequent != index_.end() && subsequent->second.num_fragments_read > 0 &&
+         num_fragments > resume.num_fragments_read) {
++      if (g_browser_core_reject_logs < 100) {
++        ++g_browser_core_reject_logs;
++        PERFETTO_ELOG("Browser Core copy reject evicted-subsequent-read: p=%u w=%u chunk=%u "
++                      "frag=%u",
++                      producer_id_trusted, writer_id, chunk_id,
++                      num_fragments);
++      }
+       stats_.set_abi_violations(stats_.abi_violations() + 1);
+       PERFETTO_DCHECK(suppress_client_dchecks_for_testing_);
+       return;
+@@ -577,6 +617,15 @@
+   // Stop iterating when we reach the end of the sequence.
+   // Note: |seq_begin| might be == |seq_end|.
+   if (cur == seq_end || cur->first.chunk_id == wrapping_id) {
++    if (cur != seq_end && g_browser_core_stop_logs < 400 &&
++        cur->second.num_fragments_read < cur->second.num_fragments) {
++      ++g_browser_core_stop_logs;
++      PERFETTO_ELOG("Browser Core read stop wrap: p=%u w=%u chunk=%u "
++                    "frag=%u read=%u",
++                    cur->first.producer_id, cur->first.writer_id,
++                    cur->first.chunk_id, cur->second.num_fragments,
++                    cur->second.num_fragments_read);
++    }
+     cur = seq_end;
+     return;
+   }
+@@ -584,6 +633,15 @@
+   // If the current chunk wasn't completed yet, we shouldn't advance past it as
+   // it may be rewritten with additional packets.
+   if (!cur->second.is_complete()) {
++    if (g_browser_core_stop_logs < 400 &&
++        cur->second.num_fragments_read < cur->second.num_fragments) {
++      ++g_browser_core_stop_logs;
++      PERFETTO_ELOG("Browser Core read stop incomplete: p=%u w=%u chunk=%u "
++                    "frag=%u read=%u",
++                    cur->first.producer_id, cur->first.writer_id,
++                    cur->first.chunk_id, cur->second.num_fragments,
++                    cur->second.num_fragments_read);
++    }
+     cur = seq_end;
+     return;
+   }
+@@ -595,9 +653,19 @@
+   // There may be a missing chunk in the sequence of chunks, in which case the
+   // next chunk's ID won't follow the last one's. If so, skip the rest of the
+   // sequence. We'll return to it later once the hole is filled.
+-  if (last_chunk_id + 1 != cur->first.chunk_id)
++  if (last_chunk_id + 1 != cur->first.chunk_id) {
++    if (g_browser_core_stop_logs < 400) {
++      ++g_browser_core_stop_logs;
++      PERFETTO_ELOG("Browser Core read stop hole: p=%u w=%u expected=%u "
++                    "found=%u frag=%u read=%u",
++                    cur->first.producer_id, cur->first.writer_id,
++                    last_chunk_id + 1, cur->first.chunk_id,
++                    cur->second.num_fragments, cur->second.num_fragments_read);
++    }
+     cur = seq_end;
+-}
++  }
++}
++
+ bool TraceBufferV1::ReadNextTracePacket(
+     TracePacket* packet,
+     PacketSequenceProperties* sequence_properties,
+@@ -643,6 +711,14 @@
+     // If the chunk has holes that are awaiting to be patched out-of-band,
+     // skip the current sequence and move to the next one.
+     if (chunk_meta->flags & kChunkNeedsPatching) {
++      if (g_browser_core_stop_logs < 400) {
++        ++g_browser_core_stop_logs;
++        PERFETTO_ELOG("Browser Core read stop patch: p=%u w=%u chunk=%u "
++                      "frag=%u read=%u",
++                      read_iter_.producer_id(), read_iter_.writer_id(),
++                      read_iter_.chunk_id(),
++                      chunk_meta->num_fragments, chunk_meta->num_fragments_read);
++      }
+       read_iter_.MoveToEnd();
+       continue;
+     }

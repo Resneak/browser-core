@@ -1,0 +1,129 @@
+diff --git a/third_party/blink/renderer/bindings/core/v8/browser_core_binding_observer.cc b/third_party/blink/renderer/bindings/core/v8/browser_core_binding_observer.cc
+--- a/third_party/blink/renderer/bindings/core/v8/browser_core_binding_observer.cc
++++ b/third_party/blink/renderer/bindings/core/v8/browser_core_binding_observer.cc
+@@ -21,12 +21,97 @@
+ #include "base/json/json_writer.h"
+ #include "base/values.h"
+ #include "third_party/blink/renderer/core/execution_context/execution_context.h"
++#include "third_party/blink/renderer/core/dom/document.h"
++#include "third_party/blink/renderer/core/frame/local_dom_window.h"
++#include "third_party/blink/renderer/core/frame/local_frame.h"
++#include "third_party/blink/renderer/platform/weborigin/kurl.h"
+ #include "third_party/blink/renderer/platform/bindings/dom_wrapper_world.h"
+ #include "third_party/blink/renderer/platform/bindings/script_state.h"
+ #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
+ 
+ namespace blink {
+ namespace {
++
++// Snapshot existing native ownership at binding entry. No debugger attachment,
++// page property reads, JavaScript coercion or persistent observer registry.
++base::DictValue ContextUrl(const KURL& url) {
++  base::DictValue out;
++  out.Set("not_fetch_provenance", true);
++  if (!url.IsValid() || url.GetString().length() > 16384) {
++    out.Set("status", "unavailable");
++    out.Set("reason", url.IsValid() ? "length-limit" : "invalid-url");
++    return out;
++  }
++  const std::string original = url.GetString().Utf8();
++  DigestValue digest;
++  if (!ComputeDigest(kHashAlgorithmSha256,
++        base::as_byte_span(std::string_view(original)), digest)) {
++    out.Set("status", "unavailable");
++    out.Set("reason", "digest-unavailable");
++    return out;
++  }
++  out.Set("status", "native-context-url");
++  out.Set("url_sha256", base::HexEncodeLower(digest));
++  KURL display_url(url);
++  display_url.SetUser(String());
++  display_url.SetPass(String());
++  display_url.SetQuery(String());
++  display_url.RemoveFragmentIdentifier();
++  std::string display;
++  if (display_url.ProtocolIsInHttpFamily()) {
++    display = display_url.GetString().Utf8();
++    if (display.size() > 512) display = "[URL exceeds display limit]";
++  } else if (display_url.GetString() == "about:blank" ||
++             display_url.GetString() == "about:srcdoc") {
++    display = display_url.GetString().Utf8();
++  } else {
++    // Blob/data/file/opaque URLs can embed source, local paths or credentials.
++    // Preserve a bounded digest, never their raw opaque content.
++    display = "[non-HTTP URL omitted]";
++  }
++  out.Set("display", display);
++  return out;
++}
++
++std::string ContextMetadata(ScriptState* state, ExecutionContext* context) {
++  base::DictValue out;
++  out.Set("schema", "browser-core.inspection-context/1");
++  out.Set("context_id", context->GetExecutionContextToken().ToString());
++  out.Set("v8_context_id", state->GetToken().ToString());
++  out.Set("realm_id", state->World().GetWorldId());
++  out.Set("document_id", base::Value());
++  out.Set("frame_id", base::Value());
++  out.Set("parent_frame_id", base::Value());
++  out.Set("worker_id", base::Value());
++  out.Set("parent_context_id", base::Value());
++  const char* kind = "other";
++  if (context->IsWindow()) {
++    auto* window = To<LocalDOMWindow>(context);
++    if (auto* document = window->document())
++      out.Set("document_id", document->Token().ToString());
++    if (auto* frame = window->GetFrame()) {
++      kind = frame->IsMainFrame() ? "page" : "frame";
++      // Unlike Local/RemoteFrameToken, this token names the same frame node
++      // across renderer processes and matches Chromium's own frame identifier.
++      out.Set("frame_id", frame->GetDevToolsFrameToken().ToString());
++      if (auto* parent = frame->Parent())
++        out.Set("parent_frame_id", parent->GetDevToolsFrameToken().ToString());
++    } else {
++      kind = "detached-window";
++    }
++  } else if (context->IsWorkerGlobalScope()) {
++    kind = context->IsDedicatedWorkerGlobalScope() ? "dedicated-worker" :
++        context->IsSharedWorkerGlobalScope() ? "shared-worker" :
++        context->IsServiceWorkerGlobalScope() ? "service-worker" : "worker";
++    out.Set("worker_id", context->GetExecutionContextToken().ToString());
++    if (auto parent = context->GetParentExecutionContextToken())
++      out.Set("parent_context_id", parent->ToString());
++  }
++  out.Set("kind", kind);
++  out.Set("document_url", ContextUrl(context->Url()));
++  return base::WriteJson(out).value_or("{}");
++}
++
+ base::DictValue Number(double value) {
+   base::DictValue out;
+   out.Set("type", "number");
+@@ -269,6 +354,7 @@
+   context_id_ = context->GetExecutionContextToken().ToString();
+   context_kind_ = context->IsWindow() ? "window" : context->IsWorkerGlobalScope() ? "worker" : "other";
+   realm_id_ = state->World().GetWorldId();
++  context_metadata_ = ContextMetadata(state, context);
+   script_id_ = v8::StackTrace::CurrentScriptId(isolate);
+   base::ListValue parameters;
+   for (int i = 0; i < std::min(parameter_count, info.Length()); ++i)
+@@ -311,6 +397,7 @@
+       "context_id", context_id_, "context_kind", context_kind_,
+       "realm_id", realm_id_, "script_id", script_id_,
+       "completion", exception ? "exception" : "returned",
+-      "parameters_json", parameters_, "result_json", output);
++      "parameters_json", parameters_, "result_json", output,
++      "context_metadata_json", context_metadata_);
+ }
+ }  // namespace blink
+diff --git a/third_party/blink/renderer/bindings/core/v8/browser_core_binding_observer.h b/third_party/blink/renderer/bindings/core/v8/browser_core_binding_observer.h
+--- a/third_party/blink/renderer/bindings/core/v8/browser_core_binding_observer.h
++++ b/third_party/blink/renderer/bindings/core/v8/browser_core_binding_observer.h
+@@ -31,6 +31,7 @@
+   const char* context_kind_ = "unknown";
+   std::string context_id_;
+   std::string parameters_;
++  std::string context_metadata_;
+ };
+ }  // namespace blink
+ #endif

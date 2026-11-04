@@ -1,0 +1,41 @@
+diff --git a/src/tracing/service/tracing_service_impl.cc b/src/tracing/service/tracing_service_impl.cc
+--- a/src/tracing/service/tracing_service_impl.cc
++++ b/src/tracing/service/tracing_service_impl.cc
+@@ -2145,6 +2145,16 @@
+       // flush by inserting an empty vector if the producer not in the map
+       // already. See RFC-0010.
+       data_source_instances.try_emplace(producer_id);
++    } else if (producer->smb_scraping_enabled_) {
++      // Browser Core: producers whose session instances cannot handle flush
++      // requests (no_flush descriptors, e.g. TrackEvent) still need the flush
++      // IPC so they drain shared-memory commit batches that are buffered in
++      // their arbiter. Without it, completed chunks can reach this service
++      // only after the flush-time scrape, and the consumer's streaming
++      // decoder then sees events older than its extraction watermark. The
++      // producer acknowledges the empty request after pushing those commits
++      // (mojo ordering), so CompleteFlush scrapes a complete prefix.
++      data_source_instances.try_emplace(producer_id);
+     }
+   }
+   FlushDataSourceInstances(tracing_session, timeout_ms, data_source_instances,
+diff --git a/src/tracing/internal/tracing_muxer_impl.cc b/src/tracing/internal/tracing_muxer_impl.cc
+--- a/src/tracing/internal/tracing_muxer_impl.cc
++++ b/src/tracing/internal/tracing_muxer_impl.cc
+@@ -328,6 +328,17 @@
+   PERFETTO_DCHECK_THREAD(thread_checker_);
+   bool all_handled = true;
+   if (muxer_) {
++    // Browser Core: a flush request also fences writers of data sources that
++    // cannot handle flushes themselves (no_flush descriptors, e.g.
++    // TrackEvent). Drain commit batches still buffered in the shared-memory
++    // arbiter before acknowledging, so the service's flush-time scrape and
++    // the following read observe a complete prefix. CommitData is sent on the
++    // same mojo pipe before NotifyFlushComplete, preserving service-side
++    // ordering. Runs on this task runner, so the arbiter flush executes
++    // synchronously.
++    if (auto* arbiter = service_->MaybeSharedMemoryArbiter()) {
++      arbiter->FlushPendingCommitDataRequests();
++    }
+     for (size_t i = 0; i < instance_count; i++) {
+       DataSourceInstanceID ds_id = instances[i];
+       bool handled = muxer_->FlushDataSource_AsyncBegin(backend_id_, ds_id,

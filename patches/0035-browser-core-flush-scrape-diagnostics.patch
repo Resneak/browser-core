@@ -1,0 +1,117 @@
+diff --git a/src/tracing/service/tracing_service_endpoints_impl.cc b/src/tracing/service/tracing_service_endpoints_impl.cc
+--- a/src/tracing/service/tracing_service_endpoints_impl.cc
++++ b/src/tracing/service/tracing_service_endpoints_impl.cc
+@@ -471,11 +471,18 @@
+   PERFETTO_DCHECK_THREAD(thread_checker_);
+   writers_[static_cast<WriterID>(writer_id)] =
+       static_cast<BufferID>(target_buffer);
++  PERFETTO_ELOG("Browser Core writer register: producer=%u writer=%u "
++                "target=%u total=%zu",
++                static_cast<unsigned>(id_), writer_id, target_buffer,
++                writers_.size());
+ }
+ 
+ void ProducerEndpointImpl::UnregisterTraceWriter(uint32_t writer_id) {
+   PERFETTO_DCHECK_THREAD(thread_checker_);
+   writers_.erase(static_cast<WriterID>(writer_id));
++  PERFETTO_ELOG("Browser Core writer unregister: producer=%u writer=%u "
++                "total=%zu",
++                static_cast<unsigned>(id_), writer_id, writers_.size());
+ }
+ 
+ void ProducerEndpointImpl::CommitData(const CommitDataRequest& req_untrusted,
+diff --git a/src/tracing/service/tracing_service_impl.cc b/src/tracing/service/tracing_service_impl.cc
+--- a/src/tracing/service/tracing_service_impl.cc
++++ b/src/tracing/service/tracing_service_impl.cc
+@@ -2324,12 +2324,21 @@
+ void TracingServiceImpl::ScrapeSharedMemoryBuffers(
+     TracingSession* tracing_session,
+     ProducerEndpointImpl* producer) {
+-  if (!producer->smb_scraping_enabled_ || producer->IsShmemEmulated())
+-    return;
++  if (!producer->smb_scraping_enabled_ || producer->IsShmemEmulated()) {
++    PERFETTO_ELOG("Browser Core scrape skip mode: producer=%u scrape=%d "
++                  "emulated=%d",
++                  static_cast<unsigned>(producer->id_),
++                  producer->smb_scraping_enabled_ ? 1 : 0,
++                  producer->IsShmemEmulated() ? 1 : 0);
++    return;
++  }
+ 
+   // Can't copy chunks if we don't know about any trace writers.
+-  if (producer->writers_.empty())
+-    return;
++  if (producer->writers_.empty()) {
++    PERFETTO_ELOG("Browser Core scrape skip writers: producer=%u name=%s",
++                  static_cast<unsigned>(producer->id_), producer->name_.c_str());
++    return;
++  }
+ 
+   // Performance optimization: On flush or session disconnect, this method is
+   // called for each producer. If the producer doesn't participate in the
+@@ -2342,10 +2351,19 @@
+                   [producer](BufferID buffer_id) {
+                     return producer->allowed_target_buffers_.count(buffer_id);
+                   });
+-  if (!producer_in_session)
+-    return;
+-
+-  PERFETTO_DLOG("Scraping SMB for producer %" PRIu16, producer->id_);
++  if (!producer_in_session) {
++    PERFETTO_ELOG("Browser Core scrape skip session: producer=%u name=%s "
++                  "writers=%zu",
++                  static_cast<unsigned>(producer->id_), producer->name_.c_str(),
++                  producer->writers_.size());
++    return;
++  }
++
++  size_t scrape_unknown_writer = 0;
++  size_t scrape_chunks = 0;
++  PERFETTO_ELOG("Browser Core scrape begin: producer=%u name=%s writers=%zu",
++                static_cast<unsigned>(producer->id_), producer->name_.c_str(),
++                producer->writers_.size());
+ 
+   // Find and copy any uncommitted chunks from the SMB.
+   //
+@@ -2378,8 +2396,16 @@
+ 
+         // We can only scrape this chunk if we know which log buffer to copy it
+         // into.
+-        if (!target_buffer_id)
++        if (!target_buffer_id) {
++          ++scrape_unknown_writer;
++          if (scrape_unknown_writer <= 4) {
++            PERFETTO_ELOG("Browser Core scrape unknown writer: producer=%u "
++                          "writer=%u",
++                          static_cast<unsigned>(producer->id_),
++                          static_cast<unsigned>(writer_id));
++          }
+           return;
++        }
+ 
+         // Skip chunks that don't belong to the requested tracing session.
+         bool target_buffer_belongs_to_session =
+@@ -2391,11 +2417,23 @@
+         uint32_t chunk_id =
+             chunk->header()->chunk_id.load(std::memory_order_relaxed);
+ 
++        ++scrape_chunks;
++        if (scrape_chunks <= 4) {
++          PERFETTO_ELOG("Browser Core scrape chunk: producer=%u writer=%u "
++                        "chunk=%u complete=%d fragments=%u",
++                        static_cast<unsigned>(producer->id_),
++                        static_cast<unsigned>(writer_id), chunk_id,
++                        chunk_complete ? 1 : 0, packet_count);
++        }
+         CopyProducerPageIntoLogBuffer(
+             producer->id_, producer->client_identity_, writer_id, chunk_id,
+             *target_buffer_id, packet_count, packet_flags, chunk_complete,
+             chunk->payload_begin(), chunk->payload_size());
+       });
++  PERFETTO_ELOG("Browser Core scrape end: producer=%u chunks=%zu "
++                "unknown_writer=%zu",
++                static_cast<unsigned>(producer->id_), scrape_chunks,
++                scrape_unknown_writer);
+ }
+ 
+ void TracingServiceImpl::FlushAndDisableTracing(TracingSessionID tsid) {

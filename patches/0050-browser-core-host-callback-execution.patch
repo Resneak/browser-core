@@ -1,0 +1,51 @@
+diff --git a/third_party/blink/renderer/bindings/core/v8/callback_invoke_helper.cc b/third_party/blink/renderer/bindings/core/v8/callback_invoke_helper.cc
+index edab94c589..2950a94976 100644
+--- a/third_party/blink/renderer/bindings/core/v8/callback_invoke_helper.cc
++++ b/third_party/blink/renderer/bindings/core/v8/callback_invoke_helper.cc
+@@ -4,6 +4,8 @@
+ #include "third_party/blink/renderer/bindings/core/v8/callback_invoke_helper.h"
+ 
++#include "base/strings/strcat.h"
++#include "base/strings/string_number_conversions.h"
+ #include "base/trace_event/trace_event.h"
+ #include "third_party/blink/renderer/bindings/core/v8/v8_script_runner.h"
+ #include "third_party/blink/renderer/core/core_export.h"
+ #include "third_party/blink/renderer/core/core_probes_inl.h"
+@@ -108,6 +110,37 @@ bool CallbackInvokeHelper<CallbackBase, mode, return_type_is_promise>::
+   ScriptState* script_state = callback_->CallbackRelevantScriptState();
+   DCHECK(script_state);
+   ExecutionContext* execution_context = ExecutionContext::From(script_state);
++  TRACE_EVENT(
++      "browser_core.debug", "BrowserCore.HostCallbackExecution",
++      [&](perfetto::EventContext event) {
++        const std::string context_id =
++            execution_context->GetExecutionContextToken().ToString();
++        const int script_id = function_->ScriptId();
++        const char* context_kind =
++            execution_context->IsWindow()
++                ? "frame"
++                : (execution_context->IsWorkerGlobalScope() ? "worker"
++                                                            : "other");
++        event.AddDebugAnnotation("schema", "browser-core.native/1");
++        event.AddDebugAnnotation("event_category", "execution");
++        event.AddDebugAnnotation("event_name", "host.callback.execution");
++        event.AddDebugAnnotation("component", "blink.bindings.callback");
++        event.AddDebugAnnotation("context_id", context_id);
++        event.AddDebugAnnotation("context_kind", context_kind);
++        event.AddDebugAnnotation("script_id", script_id);
++        if (script_id >= 0) {
++          event.AddDebugAnnotation(
++              "native_parent_id",
++              base::StrCat({"script:", context_id, ":",
++                            base::NumberToString(script_id)}));
++        }
++        event.AddDebugAnnotation("callback_interface", class_like_name_);
++        event.AddDebugAnnotation("callback_operation", property_name_);
++        event.AddDebugAnnotation(
++            "callback_kind",
++            mode == CallbackInvokeHelperMode::kConstructorCall ? "constructor"
++                                                               : "function");
++      });
+   probe::InvokeCallback probe_scope(*script_state, class_like_name_,
+                                     /*callback=*/nullptr, function_);
+ 

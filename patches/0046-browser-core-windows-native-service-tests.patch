@@ -1,0 +1,34 @@
+diff --git a/third_party/perfetto/src/tracing/service/BUILD.gn b/third_party/perfetto/src/tracing/service/BUILD.gn
+--- a/third_party/perfetto/src/tracing/service/BUILD.gn
++++ b/third_party/perfetto/src/tracing/service/BUILD.gn
+@@ -174,11 +174,9 @@
+     sources += [ "compressor_unittest.cc" ]
+   }
+ 
+-  # These tests rely on test_task_runner.h which
+-  # has no Windows implementation.
+-  if (!is_win) {
+-    sources += [ "tracing_service_impl_unittest.cc" ]
+-  }
++  # Browser Core: TestTaskRunner now has a Windows implementation.
++  # Compile the native service outcome tests on the supported Windows host.
++  sources += [ "tracing_service_impl_unittest.cc" ]
+ }
+ 
+ if (enable_perfetto_benchmarks) {
+diff --git a/third_party/perfetto/src/tracing/test/BUILD.gn b/third_party/perfetto/src/tracing/test/BUILD.gn
+--- a/third_party/perfetto/src/tracing/test/BUILD.gn
++++ b/third_party/perfetto/src/tracing/test/BUILD.gn
+@@ -46,9 +46,9 @@
+     "traced_value_test_support.cc",
+   ]
+ 
+-  # These tests rely on test_task_runner.h which
+-  # has no implementation for Windows or NaCL.
+-  if (!is_win && !is_nacl) {
++  # Browser Core: the task runner and service mocks are available on Windows.
++  # NaCL still has no supported test task runner.
++  if (!is_nacl) {
+     sources += [
+       "mock_consumer.cc",
+       "mock_consumer.h",

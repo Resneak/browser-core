@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Research browsers · Browser Core</title>
+<style nonce="__NONCE__">
+:root{color-scheme:light;--ink:#183c38;--muted:#536761;--line:#d5e1dc;--paper:#f4f7f4;--green:#176951}
+*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.5 system-ui,sans-serif}
+main{max-width:920px;margin:auto;padding:36px 24px 60px}h1{font-size:32px;line-height:1.15;margin:8px 0 14px}h2{font-size:20px;margin:0 0 14px}p{margin:10px 0}small,.muted{color:var(--muted)}
+.eyebrow{font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}.card{background:white;border:1px solid var(--line);border-radius:10px;padding:22px;margin-top:22px}.status{background:#e5f1e9;border-left:4px solid var(--green)}
+button,input,a.button{font:inherit;border-radius:6px;padding:10px 14px}button,a.button{cursor:pointer;background:var(--green);color:white;border:1px solid var(--green);font-weight:600;text-decoration:none;display:inline-block}button:disabled{cursor:default;opacity:.45}.secondary{background:white;color:var(--ink);border-color:var(--line)}input{min-width:0;border:1px solid #91aaa0;background:white;color:var(--ink);width:100%}button:focus-visible,input:focus-visible,a:focus-visible{outline:3px solid #cf951a;outline-offset:3px}label{display:block;font-size:14px;font-weight:600;margin-bottom:5px}
+.toolbar{display:flex;gap:12px;align-items:end}.grow{flex:1;min-width:0}.toolbar button{white-space:nowrap}.profile{display:flex;gap:16px;align-items:center;padding:17px 0;border-top:1px solid var(--line)}.profile:first-child{margin-top:16px}.profile .details{min-width:0;flex:1}.profile strong,.profile small,.recording a{display:block;overflow-wrap:anywhere}.profile small{font-size:13px}.profile button{flex-shrink:0}#statusTitle{font-weight:700;font-size:18px}#error,#actionError,#listError{color:#9b3022;overflow-wrap:anywhere}.recording{padding:10px 0;border-top:1px solid var(--line)}a{color:var(--green)}.pages{display:flex;gap:12px;align-items:center;justify-content:flex-end;margin-top:12px}.hidden,[hidden]{display:none!important}
+@media(max-width:550px){main{padding:24px 16px 40px}h1{font-size:28px}.card{padding:17px}.toolbar{flex-wrap:wrap}.toolbar .grow{flex-basis:100%}.profile{align-items:flex-start}.profile button{font-size:14px;padding:8px 12px}.pages{justify-content:space-between;font-size:14px}}
+</style>
+<main>
+<div class="eyebrow">Browser Core</div>
+<h1>Your research browsers</h1>
+<p class="muted">Open a saved browser, or create a separate place for new research. Recording and the inspector start together.</p>
+<section class="card status" aria-live="polite">
+<div id="statusTitle">Connecting…</div><p id="statusDetail">Keep the command running while you work.</p>
+<p id="error" hidden></p><p><a id="inspector" class="button" target="_blank" rel="noopener noreferrer" hidden>Open live inspector</a> <button id="stop" class="secondary" hidden>Close browser and save</button></p>
+<small id="budget"></small>
+</section>
+<p id="actionError" role="alert" hidden></p>
+<section class="card">
+<h2>Saved browsers</h2>
+<div class="toolbar"><div class="grow"><label for="search">Find a browser</label><input id="search" type="search" maxlength="128" placeholder="Search name or saved identity"></div><button id="refresh" class="secondary">Refresh list</button></div>
+<p id="listError" role="alert" hidden></p><p id="profileCount" class="muted">Loading saved browsers…</p>
+<div id="profiles"></div><div class="pages" id="pages" hidden><button class="secondary" id="previous">Previous</button><span id="pageNumber"></span><button class="secondary" id="next">Next</button></div>
+</section>
+<section class="card">
+<h2>Create a research browser</h2>
+<div class="toolbar"><div class="grow"><label for="newName">Name</label><input id="newName" maxlength="64" pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,63}" placeholder="For example: checkout-research" autocomplete="off"></div><button id="create" disabled>Create and open</button></div>
+<p><small>Use letters, numbers, dots, underscores or hyphens. A new browser uses this computer’s identity and separate saved storage.</small></p>
+</section>
+<section class="card" id="recentSection" hidden>
+<h2>Recent recordings</h2><p class="muted">Review your last eight sessions opened from this page. Older files remain saved on disk.</p><div id="recent"></div>
+</section>
+<p class="muted"><small>One research browser can be open from this page at a time. Close its window to choose another. Press Ctrl+C in the command when finished; saved profiles and recordings stay available.</small></p>
+</main>
+<script nonce="__NONCE__">
+'use strict';
+const byId=id=>document.getElementById(id), base=location.pathname, actionToken='__ACTION_TOKEN__';
+let profiles=[], current=null, statusReady=false, selecting=false, loading=false, pageIndex=0, lastRevision=-1, lastStatus='';
+const pageSize=50;
+function message(id,text){byId(id).textContent=text||'';byId(id).hidden=!text;}
+function canStart(){return statusReady&&!selecting&&current&&['ready','error'].includes(current.state);}
+function renderProfiles(){
+ const query=byId('search').value.trim().toLowerCase();
+ const matched=profiles.filter(p=>[p.name,p.id,p.identity].some(v=>v.toLowerCase().includes(query)));
+ pageIndex=Math.min(pageIndex,Math.max(0,Math.ceil(matched.length/pageSize)-1));
+ byId('profiles').replaceChildren();
+ byId('profileCount').textContent=matched.length?`${matched.length} saved ${matched.length===1?'browser':'browsers'}`:(profiles.length?'No matching browsers.':'No saved browsers yet. Create one below.');
+ for(const profile of matched.slice(pageIndex*pageSize,(pageIndex+1)*pageSize)){
+  const row=document.createElement('div');row.className='profile';
+  const details=document.createElement('div');details.className='details';
+  const title=document.createElement('strong');title.textContent=profile.name;
+  const identity=document.createElement('small');identity.textContent=`${profile.identity} · ${profile.route}`;
+  details.append(title,identity);
+  if(profile.name!==profile.id){const id=document.createElement('small');id.textContent=profile.id;details.append(id);}
+  const button=document.createElement('button');button.textContent='Open';button.dataset.profile=profile.id;button.disabled=!canStart();button.addEventListener('click',()=>start(profile.id,'open'));
+  row.append(details,button);byId('profiles').append(row);
+ }
+ byId('pages').hidden=matched.length<=pageSize;byId('previous').disabled=pageIndex===0;byId('next').disabled=(pageIndex+1)*pageSize>=matched.length;byId('pageNumber').textContent=`${pageIndex+1} / ${Math.max(1,Math.ceil(matched.length/pageSize))}`;
+ byId('create').disabled=!canStart();
+}
+function safeInspector(value){const url=new URL(value);if(url.protocol!=='http:'||url.hostname!=='127.0.0.1'||url.username||url.password)throw Error('Invalid inspector address');return url.href;}
+function renderStatus(){
+ if(!statusReady){byId('statusTitle').textContent='Connection unavailable';byId('statusDetail').textContent='Check that the command is still running. This page will reconnect.';byId('inspector').hidden=true;byId('stop').hidden=true;renderProfiles();return;}
+ const labels={ready:'Choose a research browser',opening:'Opening your browser…',running:'Research browser is open',finishing:'Saving the recording…',error:'Session needs attention','cleanup-error':'Session needs cleanup',closed:'Research page closed'};
+ byId('statusTitle').textContent=labels[current.state]||'Session needs attention';
+ byId('statusDetail').textContent=current.state==='running'?`${current.profile_id} · Close its browser window when you are ready to choose another.`:current.state==='opening'?'Checking the saved profile and browser before starting recording.':'Keep the command running while you work. Saved identities and storage are reused when you reopen a browser.';
+ byId('budget').textContent=`Recording budget: ${current.recording_limit_mib} MiB per session${current.recording_parts>1?' across up to '+current.recording_parts+' files':''}. Capture stops at the limit; the browser stays open.`;
+ message('error',current.error);byId('inspector').hidden=!current.inspector_url;
+ byId('stop').hidden=current.state!=='running';
+ if(current.inspector_url)byId('inspector').href=safeInspector(current.inspector_url);
+ byId('recent').replaceChildren();byId('recentSection').hidden=current.recent.length===0;
+ for(const record of current.recent){const row=document.createElement('div');row.className='recording';const link=document.createElement('a');link.href=safeInspector(record.inspector_url);link.target='_blank';link.rel='noopener noreferrer';link.textContent=`Review ${record.profile_id}`;const date=document.createElement('small');date.textContent=`Opened ${new Date(record.opened_at).toLocaleString()}`;row.append(link,date);byId('recent').append(row);}
+ renderProfiles();
+}
+async function loadProfiles(){if(loading)return;loading=true;byId('refresh').disabled=true;
+ try{const response=await fetch(base+'profiles',{cache:'no-store'});const body=await response.json();if(!response.ok)throw Error(body.error);profiles=body.profiles;message('listError','');renderProfiles();}
+ catch(error){profiles=[];renderProfiles();message('listError',error.message||'Could not load saved browsers. Try again.');byId('profileCount').textContent='Saved browsers unavailable.';}
+ finally{loading=false;byId('refresh').disabled=false;}}
+async function poll(){
+ try{const response=await fetch(base+'status',{cache:'no-store'});if(!response.ok)throw Error();current=await response.json();statusReady=true;const encoded=JSON.stringify(current);if(encoded!==lastStatus){lastStatus=encoded;renderStatus();}if(current.revision!==lastRevision){lastRevision=current.revision;if(current.state==='ready'||current.state==='error')loadProfiles();}}
+ catch{statusReady=false;lastStatus='';renderStatus();}
+ finally{setTimeout(poll,1000);}
+}
+async function start(profileId,action){if(!canStart())return;
+ if(!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(profileId)){message('actionError','Choose a name using 1–64 letters, numbers, dots, underscores or hyphens.');return;}
+ if(action==='create'&&profiles.some(p=>p.id===profileId)){message('actionError','That name is already saved. Use Open above or choose a different name.');return;}
+ selecting=true;renderProfiles();message('actionError','');
+ try{const response=await fetch(base+'start',{method:'POST',headers:{'Content-Type':'application/json','X-Research-Action':actionToken},body:JSON.stringify({profile_id:profileId,action})});const result=await response.json();if(!response.ok)throw Error(result.error);current={...current,state:'opening',profile_id:profileId};renderStatus();}
+ catch(error){message('actionError',error.message||'Could not open this browser. Try again.');}
+ finally{selecting=false;renderProfiles();}
+}
+byId('search').addEventListener('input',()=>{pageIndex=0;renderProfiles();});byId('refresh').addEventListener('click',loadProfiles);
+byId('previous').addEventListener('click',()=>{pageIndex--;renderProfiles();});byId('next').addEventListener('click',()=>{pageIndex++;renderProfiles();});
+byId('create').addEventListener('click',()=>start(byId('newName').value.trim(),'create'));
+byId('stop').addEventListener('click',async()=>{byId('stop').disabled=true;try{const response=await fetch(base+'stop',{method:'POST',headers:{'Content-Type':'application/json','X-Research-Action':actionToken},body:'{}'});if(!response.ok)throw Error();current={...current,state:'finishing'};renderStatus();}catch{message('actionError','Could not close the owned browser. Check the session and try again.');}finally{byId('stop').disabled=false;}});
+byId('newName').addEventListener('keydown',event=>{if(event.key==='Enter')start(byId('newName').value.trim(),'create');});
+loadProfiles();poll();
+</script>
+</html>

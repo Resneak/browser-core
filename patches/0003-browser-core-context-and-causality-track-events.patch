@@ -1,0 +1,379 @@
+diff --git a/third_party/blink/renderer/bindings/core/v8/v8_metrics.cc b/third_party/blink/renderer/bindings/core/v8/v8_metrics.cc
+index 2458652c5efd2..2148a4dbba168 100644
+--- a/third_party/blink/renderer/bindings/core/v8/v8_metrics.cc
++++ b/third_party/blink/renderer/bindings/core/v8/v8_metrics.cc
+@@ -9,11 +9,14 @@
+ #include "base/metrics/histogram_functions.h"
+ #include "base/metrics/histogram_macros.h"
+ #include "base/strings/strcat.h"
++#include "base/strings/string_number_conversions.h"
+ #include "base/time/time.h"
++#include "base/trace_event/trace_event.h"
+ #include "services/metrics/public/cpp/metrics_utils.h"
+ #include "services/metrics/public/cpp/ukm_builders.h"
+ #include "third_party/blink/renderer/bindings/core/v8/local_window_proxy.h"
+ #include "third_party/blink/renderer/core/dom/document.h"
++#include "third_party/blink/renderer/core/execution_context/execution_context.h"
+ #include "third_party/blink/renderer/core/frame/frame.h"
+ #include "third_party/blink/renderer/core/frame/local_dom_window.h"
+ #include "third_party/blink/renderer/core/frame/local_frame.h"
+@@ -42,6 +45,26 @@ void V8MetricsRecorder::AddMainThreadEvent(
+ void V8MetricsRecorder::AddMainThreadEvent(
+     const v8::metrics::WasmModuleCompiled& event,
+     v8::metrics::Recorder::ContextId context_id) {
++  if (ExecutionContext* execution_context =
++          GetExecutionContextForMetrics(context_id)) {
++    const std::string execution_context_id =
++        execution_context->GetExecutionContextToken().ToString();
++    const int operation_id = execution_context->CircularSequentialID();
++    const std::string native_id =
++        base::StrCat({"wasm:", execution_context_id, ":",
++                      base::NumberToString(operation_id)});
++    const char* context_kind =
++        execution_context->IsWindow()
++            ? "frame"
++            : (execution_context->IsWorkerGlobalScope() ? "worker" : "other");
++    TRACE_EVENT_INSTANT(
++        "browser_core.debug", "BrowserCore.WasmCompiled", "schema",
++        "browser-core.native/1", "event_category", "wasm", "event_name",
++        "WebAssembly.compile.completed", "component", "v8.wasm", "context_id",
++        execution_context_id, "context_kind", context_kind, "native_id",
++        native_id, "success", event.success, "async", event.async, "cached",
++        event.cached, "code_bytes", event.code_size_in_bytes);
++  }
+   auto ukm = GetUkmRecorderAndSourceId(context_id);
+   if (!ukm)
+     return;
+@@ -653,15 +676,7 @@ void V8MetricsRecorder::NotifyIsolateDisposal() {
+ std::optional<V8MetricsRecorder::UkmRecorderAndSourceId>
+ V8MetricsRecorder::GetUkmRecorderAndSourceId(
+     v8::metrics::Recorder::ContextId context_id) {
+-  if (!isolate_)
+-    return std::optional<UkmRecorderAndSourceId>();
+-  v8::HandleScope handle_scope(isolate_);
+-  v8::MaybeLocal<v8::Context> maybe_context =
+-      v8::metrics::Recorder::GetContext(isolate_, context_id);
+-  if (maybe_context.IsEmpty())
+-    return std::optional<UkmRecorderAndSourceId>();
+-  ExecutionContext* context =
+-      ExecutionContext::From(maybe_context.ToLocalChecked());
++  ExecutionContext* context = GetExecutionContextForMetrics(context_id);
+   if (!context)
+     return std::optional<UkmRecorderAndSourceId>();
+   ukm::UkmRecorder* ukm_recorder = context->UkmRecorder();
+@@ -671,4 +686,16 @@ V8MetricsRecorder::GetUkmRecorderAndSourceId(
+                                                context->UkmSourceID());
+ }
+ 
++ExecutionContext* V8MetricsRecorder::GetExecutionContextForMetrics(
++    v8::metrics::Recorder::ContextId context_id) {
++  if (!isolate_)
++    return nullptr;
++  v8::HandleScope handle_scope(isolate_);
++  v8::MaybeLocal<v8::Context> maybe_context =
++      v8::metrics::Recorder::GetContext(isolate_, context_id);
++  if (maybe_context.IsEmpty())
++    return nullptr;
++  return ExecutionContext::From(maybe_context.ToLocalChecked());
++}
++
+ }  // namespace blink
+diff --git a/third_party/blink/renderer/bindings/core/v8/v8_metrics.h b/third_party/blink/renderer/bindings/core/v8/v8_metrics.h
+index 56f77710f4812..9007cc0814396 100644
+--- a/third_party/blink/renderer/bindings/core/v8/v8_metrics.h
++++ b/third_party/blink/renderer/bindings/core/v8/v8_metrics.h
+@@ -11,6 +11,8 @@
+ 
+ namespace blink {
+ 
++class ExecutionContext;
++
+ // Implements a V8 metrics recorder for gathering events generated
+ // within the V8 engine. This is used for some UMA and all UKM
+ // metrics. All event handling methods in here are run in the main
+@@ -71,6 +73,7 @@ class CORE_EXPORT V8MetricsRecorder : public v8::metrics::Recorder {
+ 
+   std::optional<UkmRecorderAndSourceId> GetUkmRecorderAndSourceId(
+       ContextId context_id);
++  ExecutionContext* GetExecutionContextForMetrics(ContextId context_id);
+ 
+   v8::Isolate* isolate_;
+ };
+diff --git a/third_party/blink/renderer/bindings/core/v8/v8_script_runner.cc b/third_party/blink/renderer/bindings/core/v8/v8_script_runner.cc
+index 0e597bdec7fbe..ca2fe46e54dc1 100644
+--- a/third_party/blink/renderer/bindings/core/v8/v8_script_runner.cc
++++ b/third_party/blink/renderer/bindings/core/v8/v8_script_runner.cc
+@@ -27,6 +27,8 @@
+ 
+ #include "base/feature_list.h"
+ #include "base/metrics/histogram_functions.h"
++#include "base/strings/strcat.h"
++#include "base/strings/string_number_conversions.h"
+ #include "build/build_config.h"
+ #include "third_party/blink/public/common/features.h"
+ #include "third_party/blink/public/common/page/v8_compile_hints_histograms.h"
+@@ -68,6 +70,7 @@
+ #include "third_party/blink/renderer/platform/loader/fetch/url_loader/cached_metadata_handler.h"
+ #include "third_party/blink/renderer/platform/scheduler/public/event_loop.h"
+ #include "third_party/blink/renderer/platform/wtf/text/text_encoding.h"
++#include "v8/include/v8-inspector.h"
+ 
+ namespace blink {
+ 
+@@ -475,6 +478,24 @@ v8::MaybeLocal<v8::Value> V8ScriptRunner::RunCompiledScript(
+ 
+   v8::Local<v8::Value> script_name =
+       script->GetUnboundScript()->GetScriptName();
++  const std::string context_id = context->GetExecutionContextToken().ToString();
++  const int script_id = script->ScriptId();
++  const std::string native_id = base::StrCat(
++      {"script:", context_id, ":", base::NumberToString(script_id)});
++  const char* context_kind =
++      context->IsWindow()
++          ? "frame"
++          : (context->IsWorkerGlobalScope()
++                 ? "worker"
++                 : (context->IsWorkletGlobalScope() ? "worklet" : "other"));
++  TRACE_EVENT_INSTANT("browser_core.debug", "BrowserCore.ScriptRun", "schema",
++                      "browser-core.native/1", "event_category", "execution",
++                      "event_name", "script.run", "component", "blink.v8",
++                      "context_id", context_id, "context_kind", context_kind,
++                      "script_id", script_id, "native_id", native_id,
++                      "inspector_context_id",
++                      v8_inspector::V8ContextInfo::executionContextId(
++                          isolate->GetCurrentContext()));
+   TRACE_EVENT1("v8", "v8.run", "fileName",
+                TRACE_STR_COPY(*v8::String::Utf8Value(isolate, script_name)));
+   RuntimeCallStatsScopedTracer rcs_scoped_tracer(isolate);
+diff --git a/third_party/blink/renderer/core/fetch/fetch_manager.cc b/third_party/blink/renderer/core/fetch/fetch_manager.cc
+index b2e64329639d4..9e84a579c4886 100644
+--- a/third_party/blink/renderer/core/fetch/fetch_manager.cc
++++ b/third_party/blink/renderer/core/fetch/fetch_manager.cc
+@@ -17,11 +17,14 @@
+ #include "base/metrics/histogram_functions.h"
+ #include "base/numerics/safe_conversions.h"
+ #include "base/strings/strcat.h"
++#include "base/strings/string_number_conversions.h"
+ #include "base/task/single_thread_task_runner.h"
+ #include "base/time/time.h"
++#include "base/trace_event/trace_event.h"
+ #include "base/unguessable_token.h"
+ #include "mojo/public/cpp/bindings/pending_remote.h"
+ #include "net/base/net_errors.h"
++#include "net/base/url_util.h"
+ #include "net/traffic_annotation/network_traffic_annotation.h"
+ #include "services/network/public/cpp/features.h"
+ #include "services/network/public/cpp/header_util.h"
+@@ -114,6 +117,7 @@
+ #include "third_party/blink/renderer/platform/wtf/hash_set.h"
+ #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
+ #include "third_party/blink/renderer/platform/wtf/vector.h"
++#include "v8/include/v8-debug.h"
+ #include "v8/include/v8.h"
+ 
+ using network::mojom::CredentialsMode;
+@@ -1620,6 +1624,58 @@ ScriptPromise<Response> FetchManager::Fetch(ScriptState* script_state,
+ 
+   request->SetDestination(network::mojom::RequestDestination::kEmpty);
+ 
++  ExecutionContext* execution_context = GetExecutionContext();
++  const std::string context_id =
++      execution_context->GetExecutionContextToken().ToString();
++  const int script_id =
++      v8::StackTrace::CurrentScriptId(script_state->GetIsolate());
++  const int operation_id = execution_context->CircularSequentialID();
++  const std::string api_native_id = base::StrCat(
++      {"fetch-api:", context_id, ":", base::NumberToString(operation_id)});
++  const std::string script_native_id =
++      script_id < 0 ? std::string()
++                    : base::StrCat({"script:", context_id, ":",
++                                    base::NumberToString(script_id)});
++  const std::string request_native_id = base::StrCat(
++      {"fetch-request:", context_id, ":", base::NumberToString(operation_id)});
++  const char* context_kind =
++      execution_context->IsWindow()
++          ? "frame"
++          : (execution_context->IsWorkerGlobalScope() ? "worker" : "other");
++  const bool same_origin =
++      execution_context->GetSecurityOrigin()->IsSameOriginWith(
++          SecurityOrigin::Create(request->Url()).get());
++  const std::string scheme = request->Url().Protocol().Utf8();
++  const StringView path_view = request->Url().GetPath();
++  const bool retain_path =
++      (scheme == "http" || scheme == "https" || scheme == "chrome-extension") &&
++      path_view.length() <= 1024 && path_view.starts_with('/') &&
++      !path_view.starts_with("//");
++  const std::string path =
++      retain_path ? path_view.ToString().Utf8() : "<redacted>";
++  const std::string url_class = base::StrCat(
++      {scheme, ":", same_origin ? "same-origin:" : "cross-origin:", path});
++  const std::string host = request->Url().Host().Utf8();
++  const char* target_scope =
++      scheme != "http" && scheme != "https"
++          ? "non-network"
++          : (net::HostStringIsLocalhost(host) ? "loopback" : "external");
++  const std::string method = request->Method().Utf8();
++  TRACE_EVENT_INSTANT("browser_core.debug", "BrowserCore.FetchCall", "schema",
++                      "browser-core.native/1", "event_category", "api",
++                      "event_name", "fetch", "component", "blink.fetch",
++                      "context_id", context_id, "context_kind", context_kind,
++                      "script_id", script_id, "native_id", api_native_id,
++                      "native_parent_id", script_native_id);
++  TRACE_EVENT_INSTANT(
++      "browser_core.debug", "BrowserCore.FetchRequestStart", "schema",
++      "browser-core.native/1", "event_category", "network", "event_name",
++      "fetch.request.start", "component", "blink.fetch", "context_id",
++      context_id, "context_kind", context_kind, "script_id", script_id,
++      "native_id", request_native_id, "native_parent_id", api_native_id,
++      "request_id", request_native_id, "method", method, "url_class", url_class,
++      "target_scope", target_scope, "body_bytes", request->BufferByteLength());
++
+   auto* resolver = MakeGarbageCollected<ScriptPromiseResolver<Response>>(
+       script_state, exception_state.GetContext());
+   auto promise = resolver->Promise();
+diff --git a/third_party/blink/renderer/core/messaging/message_port.cc b/third_party/blink/renderer/core/messaging/message_port.cc
+index c9fd4c68a467b..f6cf45168ce71 100644
+--- a/third_party/blink/renderer/core/messaging/message_port.cc
++++ b/third_party/blink/renderer/core/messaging/message_port.cc
+@@ -32,6 +32,8 @@
+ #include "base/containers/to_vector.h"
+ #include "base/feature_list.h"
+ #include "base/numerics/safe_conversions.h"
++#include "base/strings/strcat.h"
++#include "base/strings/string_number_conversions.h"
+ #include "base/trace_event/trace_event.h"
+ #include "mojo/public/cpp/base/big_buffer_mojom_traits.h"
+ #include "third_party/blink/public/common/features.h"
+@@ -60,9 +62,21 @@
+ #include "third_party/blink/renderer/platform/scheduler/public/task_attribution_tracker.h"
+ #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
+ #include "third_party/blink/renderer/platform/wtf/text/atomic_string.h"
++#include "v8/include/v8-debug.h"
+ 
+ namespace blink {
+ 
++namespace {
++
++std::string BrowserCoreMessageId(uint64_t trace_id) {
++  if (trace_id == 0) {
++    return std::string();
++  }
++  return base::StrCat({"message:", base::NumberToString(trace_id)});
++}
++
++}  // namespace
++
+ MessagePort::MessagePort(ExecutionContext& execution_context)
+     : ActiveScriptWrappable<MessagePort>({}),
+       ExecutionContextLifecycleObserver(execution_context.IsContextDestroyed()
+@@ -164,6 +178,41 @@ void MessagePort::postMessage(ScriptState* script_state,
+ 
+   mojo::Message mojo_message =
+       mojom::blink::TransferableMessage::WrapAsMessage(std::move(msg));
++  if (*TRACE_EVENT_API_GET_CATEGORY_GROUP_ENABLED("browser_core.debug")) {
++    // The Mojo trace nonce survives lazy serialization. Read it without
++    // materializing the message: doing so here extracts transferred handles
++    // and makes the reconstructed message unsuitable for Connector::Accept.
++    ExecutionContext* execution_context = GetExecutionContext();
++    const std::string context_id =
++        execution_context->GetExecutionContextToken().ToString();
++    const int script_id =
++        v8::StackTrace::CurrentScriptId(script_state->GetIsolate());
++    const int operation_id = execution_context->CircularSequentialID();
++    const std::string correlation_id =
++        BrowserCoreMessageId(mojo_message.GetTraceId());
++    const std::string native_id =
++        correlation_id.empty()
++            ? base::StrCat({"message:", context_id, ":",
++                            base::NumberToString(operation_id)})
++            : correlation_id;
++    const std::string native_parent_id =
++        script_id < 0 ? std::string()
++                      : base::StrCat({"script:", context_id, ":",
++                                      base::NumberToString(script_id)});
++    const char* context_kind = execution_context->IsWindow()
++                                   ? "frame"
++                                   : (execution_context->IsWorkerGlobalScope()
++                                          ? "worker"
++                                          : "other");
++    TRACE_EVENT_INSTANT(
++        "browser_core.debug", "BrowserCore.MessagePost", "schema",
++        "browser-core.native/1", "event_category", "message", "event_name",
++        "MessagePort.postMessage", "component", "blink.messaging",
++        "context_id", context_id, "context_kind", context_kind, "script_id",
++        script_id, "native_id", native_id, "native_parent_id",
++        native_parent_id);
++  }
++
+   connector_->Accept(&mojo_message);
+ }
+ 
+@@ -347,11 +396,13 @@ void MessagePort::Trace(Visitor* visitor) const {
+ bool MessagePort::Accept(mojo::Message* mojo_message) {
+   TRACE_EVENT0("blink", "MessagePort::Accept");
+ 
++  const uint64_t browser_core_trace_id = mojo_message->GetTraceId();
+   BlinkTransferableMessage message;
+   if (!mojom::blink::TransferableMessage::DeserializeFromMessage(
+           std::move(*mojo_message), &message)) {
+     return false;
+   }
++  message.trace_id = browser_core_trace_id;
+ 
+   ExecutionContext* context = GetExecutionContext();
+   if (base::FeatureList::IsEnabled(features::kBFCacheWithSharedWorker) &&
+diff --git a/third_party/blink/renderer/modules/crypto/subtle_crypto.cc b/third_party/blink/renderer/modules/crypto/subtle_crypto.cc
+index b456ecca04601..db78294e879d7 100644
+--- a/third_party/blink/renderer/modules/crypto/subtle_crypto.cc
++++ b/third_party/blink/renderer/modules/crypto/subtle_crypto.cc
+@@ -31,7 +31,10 @@
+ #include "third_party/blink/renderer/modules/crypto/subtle_crypto.h"
+ 
+ #include "base/check_deref.h"
++#include "base/strings/strcat.h"
++#include "base/strings/string_number_conversions.h"
+ #include "base/task/single_thread_task_runner.h"
++#include "base/trace_event/trace_event.h"
+ #include "third_party/blink/public/platform/platform.h"
+ #include "third_party/blink/public/platform/task_type.h"
+ #include "third_party/blink/public/platform/web_crypto.h"
+@@ -57,6 +60,7 @@
+ #include "third_party/blink/renderer/modules/crypto/normalize_algorithm.h"
+ #include "third_party/blink/renderer/platform/bindings/exception_state.h"
+ #include "third_party/blink/renderer/platform/json/json_values.h"
++#include "v8/include/v8-debug.h"
+ 
+ namespace blink {
+ 
+@@ -465,6 +469,31 @@ ScriptPromise<DOMArrayBuffer> SubtleCrypto::digest(
+   //           run author getters that mutate or detach the data buffer.
+   std::vector<uint8_t> data = CopyBytes(raw_data);
+ 
++  ExecutionContext* execution_context = ExecutionContext::From(script_state);
++  const std::string context_id =
++      execution_context->GetExecutionContextToken().ToString();
++  const int script_id =
++      v8::StackTrace::CurrentScriptId(script_state->GetIsolate());
++  const int operation_id = execution_context->CircularSequentialID();
++  const std::string native_id = base::StrCat(
++      {"crypto:", context_id, ":", base::NumberToString(operation_id)});
++  const std::string native_parent_id =
++      script_id < 0 ? std::string()
++                    : base::StrCat({"script:", context_id, ":",
++                                    base::NumberToString(script_id)});
++  const char* context_kind =
++      execution_context->IsWindow()
++          ? "frame"
++          : (execution_context->IsWorkerGlobalScope() ? "worker" : "other");
++  TRACE_EVENT_INSTANT(
++      "browser_core.debug", "BrowserCore.CryptoDigest", "schema",
++      "browser-core.native/1", "event_category", "crypto", "event_name",
++      "SubtleCrypto.digest", "component", "blink.webcrypto", "context_id",
++      context_id, "context_kind", context_kind, "script_id", script_id,
++      "native_id", native_id, "native_parent_id", native_parent_id, "algorithm",
++      WebCryptoAlgorithm::LookupAlgorithmInfo(normalized_algorithm.Id())->name,
++      "data_bytes", data.size());
++
+   auto* resolver =
+       MakeGarbageCollected<ScriptPromiseResolver<DOMArrayBuffer>>(script_state);
+   auto* result = MakeGarbageCollected<CryptoResultImpl>(script_state, resolver);

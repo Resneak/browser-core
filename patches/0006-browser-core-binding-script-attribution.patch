@@ -1,0 +1,24 @@
+diff --git a/third_party/blink/renderer/platform/bindings/runtime_call_stats.h b/third_party/blink/renderer/platform/bindings/runtime_call_stats.h
+index eb9cc37b8f..c4aa19453b 100644
+--- a/third_party/blink/renderer/platform/bindings/runtime_call_stats.h
++++ b/third_party/blink/renderer/platform/bindings/runtime_call_stats.h
+@@ -28,6 +28,7 @@
+ 
+ #if BUILDFLAG(BLINK_BINDINGS_TRACE_ENABLED)
+ #include "base/trace_event/trace_event.h"
++#include "v8/include/v8-debug.h"
+ #endif
+ 
+ namespace base {
+@@ -175,8 +176,9 @@ class PLATFORM_EXPORT RuntimeCallTimer {
+ #endif
+ 
+ #if BUILDFLAG(BLINK_BINDINGS_TRACE_ENABLED)
+-#define BLINK_BINDINGS_TRACE_EVENT(trace_event_name) \
+-  TRACE_EVENT0("blink.bindings", trace_event_name)
++#define BLINK_BINDINGS_TRACE_EVENT(trace_event_name)                    \
++  TRACE_EVENT1("blink.bindings", trace_event_name, "script_id",        \
++               v8::StackTrace::CurrentScriptId(v8::Isolate::GetCurrent()))
+ #else
+ #define BLINK_BINDINGS_TRACE_EVENT(trace_event_name) \
+   do {                                               \

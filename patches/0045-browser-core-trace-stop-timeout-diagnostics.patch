@@ -1,0 +1,117 @@
+diff --git a/third_party/perfetto/protos/perfetto/common/trace_stats.proto b/third_party/perfetto/protos/perfetto/common/trace_stats.proto
+--- a/third_party/perfetto/protos/perfetto/common/trace_stats.proto
++++ b/third_party/perfetto/protos/perfetto/common/trace_stats.proto
+@@ -20,7 +20,7 @@
+ 
+ // Statistics for the internals of the tracing service.
+ //
+-// Next id: 19.
++// Next id: 20.
+ message TraceStats {
+   // From TraceBuffer::Stats.
+   //
+@@ -236,4 +236,8 @@
+     FINAL_FLUSH_FAILED = 2;
+   }
+   optional FinalFlushOutcome final_flush_outcome = 15;
++
++  // Browser Core: stop deadlines that expired with producer ACKs pending.
++  // This diagnoses an unacknowledged stop, not a count of lost packets.
++  optional uint64 data_source_stop_timeouts = 19;
+ }
+diff --git a/third_party/perfetto/src/trace_processor/importers/proto/proto_trace_reader.cc b/third_party/perfetto/src/trace_processor/importers/proto/proto_trace_reader.cc
+--- a/third_party/perfetto/src/trace_processor/importers/proto/proto_trace_reader.cc
++++ b/third_party/perfetto/src/trace_processor/importers/proto/proto_trace_reader.cc
+@@ -1093,6 +1093,9 @@
+       static_cast<int64_t>(evt.flushes_succeeded()));
+   context_->stats_tracker->SetStats(stats::traced_flushes_failed,
+                                     static_cast<int64_t>(evt.flushes_failed()));
++  context_->stats_tracker->SetStats(
++      stats::traced_data_source_stop_timeouts,
++      static_cast<int64_t>(evt.data_source_stop_timeouts()));
+ 
+   if (evt.has_filter_stats()) {
+     protos::pbzero::TraceStats::FilterStats::Decoder fstat(evt.filter_stats());
+diff --git a/third_party/perfetto/src/trace_processor/storage/stats.h b/third_party/perfetto/src/trace_processor/storage/stats.h
+--- a/third_party/perfetto/src/trace_processor/storage/stats.h
++++ b/third_party/perfetto/src/trace_processor/storage/stats.h
+@@ -325,6 +325,7 @@
+     "The timestamp when trigger for the clone snapshot operation for this "    \
+     "trace was received"), \
+   F(traced_chunks_discarded,              kSingle,  kInfo,     kTrace, Scope::kMachineAndTrace,    ""), \
++  F(traced_data_source_stop_timeouts,     kSingle,  kError,    kTrace, Scope::kMachineAndTrace, "Producer stop acknowledgement deadline expired; capture may be incomplete"), \
+   F(traced_data_sources_registered,       kSingle,  kInfo,     kTrace, Scope::kMachineAndTrace,    ""), \
+   F(traced_data_sources_seen,             kSingle,  kInfo,     kTrace, Scope::kMachineAndTrace,    ""), \
+   F(traced_final_flush_failed,            kSingle,  kDataLoss, kTrace, Scope::kMachineAndTrace,    ""), \
+diff --git a/third_party/perfetto/src/tracing/service/tracing_service_impl.cc b/third_party/perfetto/src/tracing/service/tracing_service_impl.cc
+--- a/third_party/perfetto/src/tracing/service/tracing_service_impl.cc
++++ b/third_party/perfetto/src/tracing/service/tracing_service_impl.cc
+@@ -2070,6 +2070,7 @@
+   PERFETTO_ILOG("Timeout while waiting for ACKs for tracing session %" PRIu64,
+                 tsid);
+   PERFETTO_DCHECK(!tracing_session->AllDataSourceInstancesStopped());
++  ++tracing_session->data_source_stop_timeouts;
+   DisableTracingNotifyConsumerAndFlushFile(tracing_session);
+ }
+ 
+@@ -4082,6 +4083,8 @@
+   trace_stats.set_flushes_requested(tracing_session->flushes_requested);
+   trace_stats.set_flushes_succeeded(tracing_session->flushes_succeeded);
+   trace_stats.set_flushes_failed(tracing_session->flushes_failed);
++  trace_stats.set_data_source_stop_timeouts(
++      tracing_session->data_source_stop_timeouts);
+   trace_stats.set_final_flush_outcome(tracing_session->final_flush_outcome);
+ 
+   if (tracing_session->trace_filter) {
+diff --git a/third_party/perfetto/src/tracing/service/tracing_service_impl_unittest.cc b/third_party/perfetto/src/tracing/service/tracing_service_impl_unittest.cc
+--- a/third_party/perfetto/src/tracing/service/tracing_service_impl_unittest.cc
++++ b/third_party/perfetto/src/tracing/service/tracing_service_impl_unittest.cc
+@@ -4194,6 +4194,15 @@
+   // the service falls back on calling the OnTracingDisabled() because some of
+   // the expected acks weren't received.
+   consumer->WaitForTracingDisabled(kDataSourceStopTimeoutMs / 2);
++
++  const auto packets = consumer->ReadBuffers();
++  const protos::gen::TraceStats* final_stats = nullptr;
++  for (const auto& packet : packets) {
++    if (packet.has_trace_stats())
++      final_stats = &packet.trace_stats();
++  }
++  ASSERT_NE(final_stats, nullptr);
++  EXPECT_EQ(final_stats->data_source_stop_timeouts(), 0u);
+ }
+ 
+ // Creates a tracing session where a second data source
+@@ -4250,8 +4259,21 @@
+       producer->CreateTraceWriter("data_source");
+   producer->ExpectFlush(writer.get());
+ 
++  const DataSourceInstanceID stopped_id =
++      producer->GetDataSourceInstanceId("data_source");
++  ASSERT_NE(stopped_id, 0u);
+   producer->WaitForDataSourceStop("data_source");
+   consumer->WaitForTracingDisabled();
++  // A late ACK must not erase the diagnostic that the deadline expired.
++  producer->endpoint()->NotifyDataSourceStopped(stopped_id);
++  const auto packets = consumer->ReadBuffers();
++  const protos::gen::TraceStats* final_stats = nullptr;
++  for (const auto& packet : packets) {
++    if (packet.has_trace_stats())
++      final_stats = &packet.trace_stats();
++  }
++  ASSERT_NE(final_stats, nullptr);
++  EXPECT_EQ(final_stats->data_source_stop_timeouts(), 1u);
+ }
+ 
+ // Tests the session_id logic. Two data sources in the same tracing session
+diff --git a/third_party/perfetto/src/tracing/service/tracing_service_session.h b/third_party/perfetto/src/tracing/service/tracing_service_session.h
+--- a/third_party/perfetto/src/tracing/service/tracing_service_session.h
++++ b/third_party/perfetto/src/tracing/service/tracing_service_session.h
+@@ -174,6 +174,7 @@
+   uint64_t flushes_requested = 0;
+   uint64_t flushes_succeeded = 0;
+   uint64_t flushes_failed = 0;
++  uint64_t data_source_stop_timeouts = 0;
+ 
+   // Outcome of the final Flush() done by FlushAndDisableTracing().
+   protos::gen::TraceStats_FinalFlushOutcome final_flush_outcome{};

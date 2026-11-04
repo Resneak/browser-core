@@ -1,0 +1,41 @@
+diff --git a/third_party/blink/renderer/core/messaging/message_port.cc b/third_party/blink/renderer/core/messaging/message_port.cc
+--- a/third_party/blink/renderer/core/messaging/message_port.cc
++++ b/third_party/blink/renderer/core/messaging/message_port.cc
+@@ -440,6 +440,8 @@ void MessagePort::DispatchMessageEvent(BlinkTransferableMessage message) {
+       return;
+   }
+ 
++  const std::string browser_core_parent_id =
++      BrowserCoreMessageId(message.trace_id);
+   Event* evt = CreateMessageEvent(message);
+   std::optional<scheduler::TaskAttributionTracker::TaskScope>
+       task_attribution_scope;
+@@ -464,6 +466,28 @@ void MessagePort::DispatchMessageEvent(BlinkTransferableMessage message) {
+   }
+ 
+   v8::Isolate* isolate = context->GetIsolate();
++  if (*TRACE_EVENT_API_GET_CATEGORY_GROUP_ENABLED("browser_core.debug")) {
++    const std::string context_id =
++        context->GetExecutionContextToken().ToString();
++    const int operation_id = context->CircularSequentialID();
++    const std::string native_id = base::StrCat(
++        {"message-dispatch:", context_id, ":",
++         base::NumberToString(operation_id)});
++    const char* context_kind =
++        context->IsWindow()
++            ? "frame"
++            : (context->IsWorkerGlobalScope() ? "worker" : "other");
++    const char* dispatch_kind = evt->type() == event_type_names::kMessage
++                                    ? "message"
++                                    : "messageerror";
++    TRACE_EVENT_INSTANT(
++        "browser_core.debug", "BrowserCore.MessageDispatch", "schema",
++        "browser-core.native/1", "event_category", "message", "event_name",
++        "MessagePort.message.dispatch", "component", "blink.messaging",
++        "context_id", context_id, "context_kind", context_kind, "native_id",
++        native_id, "native_parent_id", browser_core_parent_id,
++        "dispatch_kind", dispatch_kind);
++  }
+   ThreadDebugger* debugger = ThreadDebugger::From(isolate);
+   if (debugger)
+     debugger->ExternalAsyncTaskStarted(message.sender_stack_trace_id);

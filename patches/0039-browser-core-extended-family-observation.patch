@@ -1,0 +1,36 @@
+diff --git a/third_party/blink/renderer/bindings/scripts/bind_gen/interface.py b/third_party/blink/renderer/bindings/scripts/bind_gen/interface.py
+--- a/third_party/blink/renderer/bindings/scripts/bind_gen/interface.py
++++ b/third_party/blink/renderer/bindings/scripts/bind_gen/interface.py
+@@ -7664,6 +7664,7 @@
+         "language", "languages", "vendor", "product", "productSub",
+         "vendorSub", "appVersion", "appName", "appCodeName", "cookieEnabled",
+         "onLine", "maxTouchPoints", "webdriver", "pdfViewerEnabled",
++        "userAgentData",
+     )
+     screen_getters = ("width", "height", "availWidth", "availHeight",
+                       "availLeft", "availTop", "colorDepth", "pixelDepth")
+@@ -7675,8 +7676,8 @@
+                 and cg_context.attribute.identifier in screen_getters)))
+     parameter = logging_id in (
+         "WebGLRenderingContext.getParameter", "WebGL2RenderingContext.getParameter")
+-    extended_getters = {'ImageData': ('data', 'width', 'height', 'colorSpace', 'pixelFormat'), 'TextMetrics': ('width', 'actualBoundingBoxLeft', 'actualBoundingBoxRight', 'fontBoundingBoxAscent', 'fontBoundingBoxDescent', 'actualBoundingBoxAscent', 'actualBoundingBoxDescent', 'emHeightAscent', 'emHeightDescent', 'hangingBaseline', 'alphabeticBaseline', 'ideographicBaseline'), 'WebGLShaderPrecisionFormat': ('rangeMin', 'rangeMax', 'precision'), 'BaseAudioContext': ('sampleRate', 'currentTime', 'state'), 'AudioBuffer': ('sampleRate', 'length', 'duration', 'numberOfChannels'), 'MediaQueryList': ('matches', 'media'), 'ScreenOrientation': ('type', 'angle')}
+-    extended_methods = {'HTMLCanvasElement.toDataURL': 2, 'CanvasRenderingContext2D.getImageData': 4, 'OffscreenCanvasRenderingContext2D.getImageData': 4, 'CanvasRenderingContext2D.measureText': 1, 'OffscreenCanvasRenderingContext2D.measureText': 1, 'WebGLRenderingContext.getSupportedExtensions': 0, 'WebGL2RenderingContext.getSupportedExtensions': 0, 'WebGLRenderingContext.getShaderPrecisionFormat': 2, 'WebGL2RenderingContext.getShaderPrecisionFormat': 2, 'AudioBuffer.getChannelData': 1}
++    extended_getters = {'ImageData': ('data', 'width', 'height', 'colorSpace', 'pixelFormat'), 'TextMetrics': ('width', 'actualBoundingBoxLeft', 'actualBoundingBoxRight', 'fontBoundingBoxAscent', 'fontBoundingBoxDescent', 'actualBoundingBoxAscent', 'actualBoundingBoxDescent', 'emHeightAscent', 'emHeightDescent', 'hangingBaseline', 'alphabeticBaseline', 'ideographicBaseline'), 'WebGLShaderPrecisionFormat': ('rangeMin', 'rangeMax', 'precision'), 'BaseAudioContext': ('sampleRate', 'currentTime', 'state'), 'AudioBuffer': ('sampleRate', 'length', 'duration', 'numberOfChannels'), 'MediaQueryList': ('matches', 'media'), 'ScreenOrientation': ('type', 'angle'), 'GPUAdapter': ('info', 'limits'), 'GPUAdapterInfo': ('vendor', 'architecture', 'device', 'description'), 'NetworkInformation': ('effectiveType', 'rtt', 'downlink', 'saveData'), 'BatteryManager': ('level', 'charging'), 'FontFaceSet': ('status',)}
++    extended_methods = {'HTMLCanvasElement.toDataURL': 2, 'CanvasRenderingContext2D.getImageData': 4, 'OffscreenCanvasRenderingContext2D.getImageData': 4, 'CanvasRenderingContext2D.measureText': 1, 'OffscreenCanvasRenderingContext2D.measureText': 1, 'WebGLRenderingContext.getSupportedExtensions': 0, 'WebGL2RenderingContext.getSupportedExtensions': 0, 'WebGLRenderingContext.getShaderPrecisionFormat': 2, 'WebGL2RenderingContext.getShaderPrecisionFormat': 2, 'AudioBuffer.getChannelData': 1, 'MediaDevices.enumerateDevices': 0, 'SpeechSynthesis.getVoices': 0, 'NavigatorUAData.getHighEntropyValues': 1, 'GPU.requestAdapter': 0, 'StorageManager.estimate': 0, 'Permissions.query': 1, 'MediaRecorder.isTypeSupported': 1, 'HTMLMediaElement.canPlayType': 1, 'FontFaceSet.check': 1}
+     extended_getter = (cg_context.attribute_get and
+         cg_context.attribute.identifier in extended_getters.get(cg_context.class_like.identifier, ()))
+     extended_only = not (allowed_getter or parameter)
+diff --git a/third_party/blink/renderer/bindings/core/v8/browser_core_binding_observer.cc b/third_party/blink/renderer/bindings/core/v8/browser_core_binding_observer.cc
+--- a/third_party/blink/renderer/bindings/core/v8/browser_core_binding_observer.cc
++++ b/third_party/blink/renderer/bindings/core/v8/browser_core_binding_observer.cc
+@@ -97,6 +97,10 @@
+   } else {
+     out.Set("type", value->IsProxy() ? "proxy" : value->IsSymbol() ? "symbol" :
+         value->IsBigInt() ? "bigint" : value->IsArray() ? "array" : "object");
++    if (value->IsArray() && !value->IsProxy()) {
++      // Numeric metadata only; Array::Length() does not invoke page code.
++      out.Set("length", static_cast<double>(value.As<v8::Array>()->Length()));
++    }
+     out.Set("omitted", "no-object-inspection");
+   }
+   return out;

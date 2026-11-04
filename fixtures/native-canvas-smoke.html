@@ -1,0 +1,16 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>browser-core-native-canvas-starting</title>
+<canvas id="fixture" width="17" height="19"></canvas>
+<script>
+  "use strict";
+  const canvas = document.getElementById("fixture");
+  const context = canvas.getContext("2d");
+  context.fillStyle = "#17324d";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  const encoded = canvas.toDataURL("image/png");
+  if (!encoded.startsWith("data:image/png;base64,")) {
+    throw new Error("canvas fixture did not produce a PNG data URL");
+  }
+  document.title = "browser-core-native-canvas-ok";
+</script>

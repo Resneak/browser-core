@@ -1,0 +1,22 @@
+diff --git a/src/tracing/service/trace_buffer_v1_unittest.cc b/src/tracing/service/trace_buffer_v1_unittest.cc
+--- a/src/tracing/service/trace_buffer_v1_unittest.cc
++++ b/src/tracing/service/trace_buffer_v1_unittest.cc
+@@ -2133,12 +2133,16 @@
+     auto chunk = CreateChunk(ProducerID(1), WriterID(1), ChunkID(0));
+     chunk.AddPacket(20, 'a');
+     if (kind == 0 || kind == 1) chunk.AddPacket(20, 'c');
+-    if (kind == 2) chunk.AddPacket(20, 'c').ClearBytes(20, 1);
++    if (kind == 2) chunk.AddPacket({0xff, 0x7f});  // Length exceeds this chunk.
+     if (kind == 4) chunk.AddPacket(20, 'c', kContOnNextChunk);
+     chunk.CopyIntoTraceBuffer(/*chunk_complete=*/kind != 1);
+     trace_buffer()->BeginRead();
+     ASSERT_THAT(ReadPacket(), ElementsAre(FakePacketFragment(20, 'a')));
+-    if (kind == 2) { SuppressClientDchecksForTesting(); ASSERT_THAT(ReadPacket(), IsEmpty()); }
++    if (kind == 2) {
++      SuppressClientDchecksForTesting();
++      ASSERT_THAT(ReadPacket(), IsEmpty());
++      ASSERT_EQ(1u, trace_buffer()->stats().abi_violations());
++    }
+     for (ChunkID i = 0; i < 4; ++i)
+       CreateChunk(ProducerID(2), WriterID(1), i).AddPacket(1008, 'x').CopyIntoTraceBuffer();
+     trace_buffer()->BeginRead();

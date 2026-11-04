@@ -1,0 +1,51 @@
+diff --git a/third_party/blink/renderer/bindings/core/v8/browser_core_binding_observer.cc b/third_party/blink/renderer/bindings/core/v8/browser_core_binding_observer.cc
+--- a/third_party/blink/renderer/bindings/core/v8/browser_core_binding_observer.cc
++++ b/third_party/blink/renderer/bindings/core/v8/browser_core_binding_observer.cc
+@@ -34,6 +34,14 @@
+ 
+ namespace blink {
+ namespace {
++
++// Existing lifecycle guards can intentionally skip a selected observation.
++// Record only the fixed API label and guard reason. Do not inspect JavaScript
++// values or weaken the guard to obtain a more complete-looking recording.
++void RecordOmittedBinding(const char* api, const char* reason) {
++  TRACE_EVENT_INSTANT("browser_core.debug", "BrowserCoreInspection.OmittedBinding",
++      "schema", "browser-core.inspection-omission/1", "api", api, "reason", reason);
++}
+ 
+ // Snapshot existing native ownership at binding entry. No debugger attachment,
+ // page property reads or JavaScript coercion. A bounded value cache below
+@@ -408,12 +416,29 @@
+       !TRACE_EVENT_CATEGORY_ENABLED("browser_core.debug")) return;
+   extended_ = version == 2;
+   auto* isolate = info.GetIsolate();
+-  if (!isolate->InContext() || isolate->HasPendingException()) return;
++  if (!isolate->InContext()) {
++    RecordOmittedBinding(api, "no-current-context");
++    return;
++  }
++  if (isolate->HasPendingException()) {
++    RecordOmittedBinding(api, "pending-exception");
++    return;
++  }
+   v8::HandleScope handles(isolate);
+   auto* state = ScriptState::MaybeFrom(isolate, isolate->GetCurrentContext());
+-  if (!state || !state->ContextIsValid()) return;
++  if (!state) {
++    RecordOmittedBinding(api, "missing-script-state");
++    return;
++  }
++  if (!state->ContextIsValid()) {
++    RecordOmittedBinding(api, "invalid-script-context");
++    return;
++  }
+   auto* context = ExecutionContext::From(state);
+-  if (!context) return;
++  if (!context) {
++    RecordOmittedBinding(api, "missing-execution-context");
++    return;
++  }
+   context_id_ = context->GetExecutionContextToken().ToString();
+   context_kind_ = context->IsWindow() ? "window" : context->IsWorkerGlobalScope() ? "worker" : "other";
+   realm_id_ = state->World().GetWorldId();

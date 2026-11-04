@@ -1,0 +1,154 @@
+diff --git a/third_party/blink/renderer/bindings/core/v8/browser_core_binding_observer.cc b/third_party/blink/renderer/bindings/core/v8/browser_core_binding_observer.cc
+--- a/third_party/blink/renderer/bindings/core/v8/browser_core_binding_observer.cc
++++ b/third_party/blink/renderer/bindings/core/v8/browser_core_binding_observer.cc
+@@ -20,6 +20,9 @@
+ #include "base/command_line.h"
+ #include "base/json/json_writer.h"
+ #include "base/values.h"
++#include "base/unguessable_token.h"
++#include <optional>
++#include "third_party/blink/renderer/platform/wtf/thread_specific.h"
+ #include "third_party/blink/renderer/core/execution_context/execution_context.h"
+ #include "third_party/blink/renderer/core/dom/document.h"
+ #include "third_party/blink/renderer/core/frame/local_dom_window.h"
+@@ -33,7 +36,8 @@
+ namespace {
+ 
+ // Snapshot existing native ownership at binding entry. No debugger attachment,
+-// page property reads, JavaScript coercion or persistent observer registry.
++// page property reads or JavaScript coercion. A bounded value cache below
++// reuses only serialization after re-reading every native context field.
+ base::DictValue ContextUrl(const KURL& url) {
+   base::DictValue out;
+   out.Set("not_fetch_provenance", true);
+@@ -73,43 +77,102 @@
+   return out;
+ }
+ 
+-std::string ContextMetadata(ScriptState* state, ExecutionContext* context) {
+-  base::DictValue out;
+-  out.Set("schema", "browser-core.inspection-context/1");
+-  out.Set("context_id", context->GetExecutionContextToken().ToString());
+-  out.Set("v8_context_id", state->GetToken().ToString());
+-  out.Set("realm_id", state->World().GetWorldId());
+-  out.Set("document_id", base::Value());
+-  out.Set("frame_id", base::Value());
+-  out.Set("parent_frame_id", base::Value());
+-  out.Set("worker_id", base::Value());
+-  out.Set("parent_context_id", base::Value());
+-  const char* kind = "other";
++// Keys contain every native field used below, read again at each entry. No
++// pointer, URL length, timestamp or context token alone authorizes reuse.
++enum class ContextKind { kOther, kPage, kFrame, kDetached, kDedicated,
++                         kShared, kService, kWorker };
++constexpr std::array<const char*, 8> kContextKindNames = {"other", "page", "frame",
++    "detached-window", "dedicated-worker", "shared-worker", "service-worker", "worker"};
++
++struct ContextSnapshot {
++  base::UnguessableToken context_id;
++  base::UnguessableToken v8_context_id;
++  int realm_id = 0;
++  std::optional<base::UnguessableToken> document_id;
++  std::optional<base::UnguessableToken> frame_id;
++  std::optional<base::UnguessableToken> parent_frame_id;
++  std::optional<base::UnguessableToken> worker_id;
++  std::optional<base::UnguessableToken> parent_context_id;
++  ContextKind kind = ContextKind::kOther;
++  String url_string;
++  bool url_valid = false;
++  bool operator==(const ContextSnapshot&) const = default;
++};
++
++ContextSnapshot SnapshotContext(ScriptState* state, ExecutionContext* context,
++                                const KURL& url) {
++  ContextSnapshot snapshot;
++  snapshot.context_id = context->GetExecutionContextToken().value();
++  snapshot.v8_context_id = state->GetToken().value();
++  snapshot.realm_id = state->World().GetWorldId();
++  snapshot.url_string = url.GetString();
++  snapshot.url_valid = url.IsValid();
+   if (context->IsWindow()) {
+     auto* window = To<LocalDOMWindow>(context);
+     if (auto* document = window->document())
+-      out.Set("document_id", document->Token().ToString());
++      snapshot.document_id = document->Token().value();
+     if (auto* frame = window->GetFrame()) {
+-      kind = frame->IsMainFrame() ? "page" : "frame";
+-      // Unlike Local/RemoteFrameToken, this token names the same frame node
+-      // across renderer processes and matches Chromium's own frame identifier.
+-      out.Set("frame_id", frame->GetDevToolsFrameToken().ToString());
++      snapshot.kind = frame->IsMainFrame() ? ContextKind::kPage : ContextKind::kFrame;
++      snapshot.frame_id = frame->GetDevToolsFrameToken();
+       if (auto* parent = frame->Parent())
+-        out.Set("parent_frame_id", parent->GetDevToolsFrameToken().ToString());
++        snapshot.parent_frame_id = parent->GetDevToolsFrameToken();
+     } else {
+-      kind = "detached-window";
++      snapshot.kind = ContextKind::kDetached;
+     }
+   } else if (context->IsWorkerGlobalScope()) {
+-    kind = context->IsDedicatedWorkerGlobalScope() ? "dedicated-worker" :
+-        context->IsSharedWorkerGlobalScope() ? "shared-worker" :
+-        context->IsServiceWorkerGlobalScope() ? "service-worker" : "worker";
+-    out.Set("worker_id", context->GetExecutionContextToken().ToString());
++    snapshot.kind = context->IsDedicatedWorkerGlobalScope() ? ContextKind::kDedicated :
++        context->IsSharedWorkerGlobalScope() ? ContextKind::kShared :
++        context->IsServiceWorkerGlobalScope() ? ContextKind::kService : ContextKind::kWorker;
++    snapshot.worker_id = snapshot.context_id;
+     if (auto parent = context->GetParentExecutionContextToken())
+-      out.Set("parent_context_id", parent->ToString());
+-  }
+-  out.Set("kind", kind);
+-  out.Set("document_url", ContextUrl(context->Url()));
+-  return base::WriteJson(out).value_or("{}");
++      snapshot.parent_context_id = parent->value();
++  }
++  return snapshot;
++}
++
++// One entry per recording thread. No browser object or V8 handle is retained.
++// URLs above the existing 16,384-code-unit limit never enter the cache. Worker
++// thread entries are released by ThreadSpecific; main-thread storage is bounded
++// for its process lifetime, following Blink's normal ThreadSpecific semantics.
++struct ContextMetadataCache {
++  std::optional<ContextSnapshot> key;
++  std::string json;
++};
++
++std::string ContextMetadata(ScriptState* state, ExecutionContext* context) {
++  const KURL& url = context->Url();
++  ContextSnapshot snapshot = SnapshotContext(state, context, url);
++  DEFINE_THREAD_SAFE_STATIC_LOCAL(ThreadSpecific<ContextMetadataCache>, cache, ());
++  const bool bounded = snapshot.url_string.length() <= 16384;
++  if (bounded && cache->key && *cache->key == snapshot)
++    return cache->json;
++
++  base::DictValue out;
++  out.Set("schema", "browser-core.inspection-context/1");
++  out.Set("context_id", snapshot.context_id.ToString());
++  out.Set("v8_context_id", snapshot.v8_context_id.ToString());
++  out.Set("realm_id", snapshot.realm_id);
++  auto token = [&out](const char* key, const std::optional<base::UnguessableToken>& value) {
++    if (value) out.Set(key, value->ToString());
++    else out.Set(key, base::Value());
++  };
++  token("document_id", snapshot.document_id);
++  token("frame_id", snapshot.frame_id);
++  token("parent_frame_id", snapshot.parent_frame_id);
++  token("worker_id", snapshot.worker_id);
++  token("parent_context_id", snapshot.parent_context_id);
++  out.Set("kind", kContextKindNames.at(static_cast<size_t>(snapshot.kind)));
++  auto label = ContextUrl(url);
++  const bool complete = label.FindString("status") &&
++      *label.FindString("status") == "native-context-url";
++  out.Set("document_url", std::move(label));
++  auto encoded = base::WriteJson(out);
++  // Do not turn transient digest/serialization failures into persistent answers.
++  if (bounded && complete && encoded) {
++    cache->key = std::move(snapshot);
++    cache->json = *encoded;
++  }
++  return encoded.value_or("{}");
+ }
+ 
+ base::DictValue Number(double value) {

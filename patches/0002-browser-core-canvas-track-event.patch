@@ -1,0 +1,32 @@
+diff --git a/base/trace_event/builtin_categories.h b/base/trace_event/builtin_categories.h
+index 9377661e94e74..4ae5650889c93 100644
+--- a/base/trace_event/builtin_categories.h
++++ b/base/trace_event/builtin_categories.h
+@@ -96,6 +96,12 @@ PERFETTO_DEFINE_CATEGORIES_IN_NAMESPACE_WITH_ATTRS(
+       "Events about global system power and battery/thermal state.")
+       .SetTags("toplevel", "persistent"),
+     perfetto::Category("browser").SetTags("navigation"),
++    perfetto::Category("browser_core.debug")
++        .SetDescription("Passive native Browser Core research-build events.")
++        .SetTags("debug"),
++    perfetto::Category("browser_core.stream")
++        .SetDescription("Opt-in Browser Core readable-stream boundary events.")
++        .SetTags("debug"),
+     perfetto::Category("browsing_data"),
+     perfetto::Category("CacheStorage"),
+     perfetto::Category("Calculators"),
+diff --git a/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc b/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
+index 46ba009737d78..9c35a98904213 100644
+--- a/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
++++ b/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
+@@ -1326,6 +1326,10 @@ String HTMLCanvasElement::ToDataURLInternal(
+ String HTMLCanvasElement::toDataURL(const String& mime_type,
+                                     const ScriptValue& quality_argument,
+                                     ExceptionState& exception_state) const {
++  TRACE_EVENT_INSTANT("browser_core.debug", "BrowserCore.CanvasReadback",
++                      "schema", "browser-core.native/1", "api",
++                      "HTMLCanvasElement.toDataURL", "width", width(), "height",
++                      height(), "origin_clean", OriginClean());
+   if (ContextHasOpenLayers(context_)) {
+     exception_state.ThrowDOMException(
+         DOMExceptionCode::kInvalidStateError,

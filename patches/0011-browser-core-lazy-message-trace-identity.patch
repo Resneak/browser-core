@@ -1,0 +1,15 @@
+diff --git a/mojo/public/cpp/bindings/lib/message.cc b/mojo/public/cpp/bindings/lib/message.cc
+--- a/mojo/public/cpp/bindings/lib/message.cc
++++ b/mojo/public/cpp/bindings/lib/message.cc
+@@ -301,8 +301,9 @@
+ Message::Message(ScopedMessageHandle handle,
+                  const internal::MessageHeaderV1& header)
+     : handle_(std::move(handle)), transferable_(true) {
+-  const uint32_t trace_nonce =
+-      static_cast<uint32_t>(base::trace_event::GetNextGlobalTraceId());
++  // Keep the identity assigned when the lazy message was created. Recording
++  // must not force serialization just to correlate its send and receive.
++  const uint32_t trace_nonce = header.trace_nonce;
+   TRACE_EVENT(
+       "mojom", "mojo::Message::Message_FromHandle",
+       perfetto::Flow::Global(::mojo::GetTraceId(header.name, trace_nonce)),

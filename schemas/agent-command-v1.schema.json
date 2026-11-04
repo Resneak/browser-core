@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:browser-core:agent-command:1",
+  "description": "Structural contract. The Python protocol additionally checks byte bounds, strict JSON, event order, expected workspace/profile/run binding, EOF, and exit/status/count relationships.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "action"
+  ],
+  "properties": {
+    "schema": {
+      "const": "browser-core.agent-command/1"
+    },
+    "action": {
+      "enum": [
+        "start",
+        "stop"
+      ]
+    }
+  }
+}

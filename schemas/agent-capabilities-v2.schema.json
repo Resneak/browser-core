@@ -1,0 +1,1601 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:browser-core:agent-capabilities:2",
+  "title": "Browser Core verified package capabilities and bounded metadata interfaces for agents",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "status",
+        "code"
+      ],
+      "properties": {
+        "schema": {
+          "const": "browser-core.agent-capabilities/2"
+        },
+        "status": {
+          "const": "error"
+        },
+        "code": {
+          "enum": [
+            "capabilities-unavailable",
+            "interrupted"
+          ]
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "status",
+        "package",
+        "runtime_check",
+        "contracts",
+        "interfaces",
+        "native_observation",
+        "value_observation",
+        "semantics",
+        "projection"
+      ],
+      "properties": {
+        "schema": {
+          "const": "browser-core.agent-capabilities/2"
+        },
+        "status": {
+          "const": "ok"
+        },
+        "package": {
+          "$ref": "#/$defs/package"
+        },
+        "runtime_check": {
+          "$ref": "#/$defs/runtimeCheck"
+        },
+        "contracts": {
+          "type": "array",
+          "minItems": 16,
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": false,
+          "prefixItems": [
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/contract"
+                },
+                {
+                  "properties": {
+                    "name": {
+                      "const": "metadata-query"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/contract"
+                },
+                {
+                  "properties": {
+                    "name": {
+                      "const": "agent-capabilities"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/contract"
+                },
+                {
+                  "properties": {
+                    "name": {
+                      "const": "agent-channel-receipt"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/contract"
+                },
+                {
+                  "properties": {
+                    "name": {
+                      "const": "agent-command"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/contract"
+                },
+                {
+                  "properties": {
+                    "name": {
+                      "const": "agent-process"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/contract"
+                },
+                {
+                  "properties": {
+                    "name": {
+                      "const": "agent-research"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/contract"
+                },
+                {
+                  "properties": {
+                    "name": {
+                      "const": "agent-research-plan"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/contract"
+                },
+                {
+                  "properties": {
+                    "name": {
+                      "const": "evidence-summary"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/contract"
+                },
+                {
+                  "properties": {
+                    "name": {
+                      "const": "evidence-query"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/contract"
+                },
+                {
+                  "properties": {
+                    "name": {
+                      "const": "session"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/contract"
+                },
+                {
+                  "properties": {
+                    "name": {
+                      "const": "trace-event"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/contract"
+                },
+                {
+                  "properties": {
+                    "name": {
+                      "const": "agent-capabilities-v2"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/contract"
+                },
+                {
+                  "properties": {
+                    "name": {
+                      "const": "metadata-query-v2"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/contract"
+                },
+                {
+                  "properties": {
+                    "name": {
+                      "const": "metadata-inventory-query"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/contract"
+                },
+                {
+                  "properties": {
+                    "name": {
+                      "const": "metadata-rows"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/contract"
+                },
+                {
+                  "properties": {
+                    "name": {
+                      "const": "evidence-stop-timeouts"
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "interfaces": {
+          "$ref": "#/$defs/interfaces"
+        },
+        "native_observation": {
+          "$ref": "#/$defs/nativeObservation"
+        },
+        "value_observation": {
+          "$ref": "#/$defs/valueObservation"
+        },
+        "semantics": {
+          "$ref": "#/$defs/semantics"
+        },
+        "projection": {
+          "const": "full"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "status",
+        "package",
+        "runtime_check",
+        "contracts",
+        "interfaces",
+        "semantics",
+        "projection",
+        "omitted_from_projection"
+      ],
+      "properties": {
+        "schema": {
+          "const": "browser-core.agent-capabilities/2"
+        },
+        "status": {
+          "const": "ok"
+        },
+        "package": {
+          "$ref": "#/$defs/package"
+        },
+        "runtime_check": {
+          "$ref": "#/$defs/runtimeCheck"
+        },
+        "contracts": {
+          "type": "array",
+          "minItems": 16,
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": false,
+          "prefixItems": [
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/contract"
+                },
+                {
+                  "properties": {
+                    "name": {
+                      "const": "metadata-query"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/contract"
+                },
+                {
+                  "properties": {
+                    "name": {
+                      "const": "agent-capabilities"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/contract"
+                },
+                {
+                  "properties": {
+                    "name": {
+                      "const": "agent-channel-receipt"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/contract"
+                },
+                {
+                  "properties": {
+                    "name": {
+                      "const": "agent-command"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/contract"
+                },
+                {
+                  "properties": {
+                    "name": {
+                      "const": "agent-process"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/contract"
+                },
+                {
+                  "properties": {
+                    "name": {
+                      "const": "agent-research"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/contract"
+                },
+                {
+                  "properties": {
+                    "name": {
+                      "const": "agent-research-plan"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/contract"
+                },
+                {
+                  "properties": {
+                    "name": {
+                      "const": "evidence-summary"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/contract"
+                },
+                {
+                  "properties": {
+                    "name": {
+                      "const": "evidence-query"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/contract"
+                },
+                {
+                  "properties": {
+                    "name": {
+                      "const": "session"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/contract"
+                },
+                {
+                  "properties": {
+                    "name": {
+                      "const": "trace-event"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/contract"
+                },
+                {
+                  "properties": {
+                    "name": {
+                      "const": "agent-capabilities-v2"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/contract"
+                },
+                {
+                  "properties": {
+                    "name": {
+                      "const": "metadata-query-v2"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/contract"
+                },
+                {
+                  "properties": {
+                    "name": {
+                      "const": "metadata-inventory-query"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/contract"
+                },
+                {
+                  "properties": {
+                    "name": {
+                      "const": "metadata-rows"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/contract"
+                },
+                {
+                  "properties": {
+                    "name": {
+                      "const": "evidence-stop-timeouts"
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "interfaces": {
+          "$ref": "#/$defs/interfaces"
+        },
+        "semantics": {
+          "$ref": "#/$defs/semantics"
+        },
+        "projection": {
+          "const": "metadata"
+        },
+        "omitted_from_projection": {
+          "const": [
+            "native_observation",
+            "value_observation"
+          ]
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "package": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "chromium_version",
+        "chromium_revision",
+        "native_patches",
+        "native_postimages",
+        "patch_series_sha256"
+      ],
+      "properties": {
+        "chromium_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "chromium_revision": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "native_patches": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 256
+        },
+        "native_postimages": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1024
+        },
+        "patch_series_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "runtimeCheck": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "requested",
+            "runtime_verified",
+            "code",
+            "runtime_bundle_sha256"
+          ],
+          "properties": {
+            "requested": {
+              "const": false
+            },
+            "runtime_verified": {
+              "const": null
+            },
+            "code": {
+              "const": null
+            },
+            "runtime_bundle_sha256": {
+              "const": null
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "requested",
+            "runtime_verified",
+            "code",
+            "runtime_bundle_sha256"
+          ],
+          "properties": {
+            "requested": {
+              "const": true
+            },
+            "runtime_verified": {
+              "const": true
+            },
+            "code": {
+              "const": "verified"
+            },
+            "runtime_bundle_sha256": {
+              "$ref": "#/$defs/sha256"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "requested",
+            "runtime_verified",
+            "code",
+            "runtime_bundle_sha256"
+          ],
+          "properties": {
+            "requested": {
+              "const": true
+            },
+            "runtime_verified": {
+              "const": false
+            },
+            "code": {
+              "enum": [
+                "invalid-selection",
+                "resources-unavailable",
+                "package-mismatch",
+                "missing-file",
+                "access-unavailable",
+                "artifact-mismatch",
+                "unverified"
+              ]
+            },
+            "runtime_bundle_sha256": {
+              "const": null
+            }
+          }
+        }
+      ]
+    },
+    "contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "bytes",
+        "sha256"
+      ],
+      "properties": {
+        "name": {
+          "enum": [
+            "agent-capabilities",
+            "agent-channel-receipt",
+            "agent-command",
+            "agent-process",
+            "agent-research",
+            "agent-research-plan",
+            "evidence-query",
+            "evidence-summary",
+            "session",
+            "trace-event",
+            "metadata-query",
+            "agent-capabilities-v2",
+            "metadata-query-v2",
+            "metadata-inventory-query",
+            "metadata-rows",
+            "evidence-stop-timeouts"
+          ]
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 131072
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "interface": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "available",
+        "input_schema",
+        "output_schema",
+        "browser_effect"
+      ],
+      "properties": {
+        "available": {
+          "const": true
+        },
+        "input_schema": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 128
+        },
+        "output_schema": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 128
+        },
+        "browser_effect": {
+          "enum": [
+            "starts-only-after-explicit-command",
+            "creator-owned-cooperative-lifetime",
+            "none-unless-explicit-launch-check",
+            "none"
+          ]
+        },
+        "capture_requirement": {
+          "enum": [
+            "supported-private-value-capture"
+          ]
+        }
+      }
+    },
+    "interfaces": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "research_control",
+        "direct_process_transport",
+        "runtime_check",
+        "saved_evidence_summary",
+        "saved_evidence_query",
+        "session_evidence_query",
+        "scoped_trace_queries",
+        "metadata_session_inventory",
+        "metadata_evidence_inventory",
+        "metadata_session_rows",
+        "metadata_evidence_rows"
+      ],
+      "properties": {
+        "metadata_queries": {
+          "$ref": "#/$defs/interface"
+        },
+        "workspace_admission": {
+          "$ref": "#/$defs/interface"
+        },
+        "effort_accounting": {
+          "$ref": "#/$defs/interface"
+        },
+        "research_control": {
+          "$ref": "#/$defs/interface"
+        },
+        "direct_process_transport": {
+          "$ref": "#/$defs/interface"
+        },
+        "runtime_check": {
+          "$ref": "#/$defs/interface"
+        },
+        "saved_evidence_summary": {
+          "$ref": "#/$defs/interface"
+        },
+        "saved_evidence_stop_timeouts": {
+          "$ref": "#/$defs/interface"
+        },
+        "saved_evidence_query": {
+          "$ref": "#/$defs/interface"
+        },
+        "session_evidence_query": {
+          "$ref": "#/$defs/interface"
+        },
+        "saved_evidence_research_plan": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/interface"
+            },
+            {
+              "required": [
+                "capture_requirement"
+              ],
+              "properties": {
+                "capture_requirement": {
+                  "const": "supported-private-value-capture"
+                }
+              }
+            }
+          ]
+        },
+        "scoped_trace_queries": {
+          "$ref": "#/$defs/interface"
+        },
+        "metadata_session_inventory": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/metadataInterface"
+            },
+            {
+              "properties": {
+                "cli_argv_prefix": {
+                  "const": [
+                    "trace",
+                    "session-inventory"
+                  ]
+                },
+                "output_schema": {
+                  "const": "browser-core.metadata-inventory-query/1"
+                },
+                "source_kind": {
+                  "const": "session"
+                },
+                "required_flags": {
+                  "const": [
+                    "--session",
+                    "--expected-run-id"
+                  ]
+                },
+                "recommended_binding_flags": {
+                  "const": []
+                },
+                "selector_flags": {
+                  "const": [
+                    "--api",
+                    "--script-id",
+                    "--context-kind",
+                    "--portable-pid",
+                    "--portable-context-id",
+                    "--start-ns",
+                    "--end-ns",
+                    "--analyst-activity"
+                  ]
+                },
+                "event_rows": {
+                  "const": false
+                },
+                "cursor_flag": {
+                  "const": null
+                },
+                "request_metadata_event": {
+                  "const": null
+                },
+                "row_policy": {
+                  "const": "no-event-rows"
+                },
+                "cursor_binding": {
+                  "const": null
+                }
+              }
+            }
+          ]
+        },
+        "metadata_evidence_inventory": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/metadataInterface"
+            },
+            {
+              "properties": {
+                "cli_argv_prefix": {
+                  "const": [
+                    "trace",
+                    "evidence-inventory"
+                  ]
+                },
+                "output_schema": {
+                  "const": "browser-core.metadata-inventory-query/1"
+                },
+                "source_kind": {
+                  "const": "immutable-evidence-bundle"
+                },
+                "required_flags": {
+                  "const": [
+                    "--bundle",
+                    "--reader-executable"
+                  ]
+                },
+                "recommended_binding_flags": {
+                  "const": [
+                    "--expected-sha256"
+                  ]
+                },
+                "selector_flags": {
+                  "const": [
+                    "--api",
+                    "--script-id",
+                    "--context-kind",
+                    "--portable-pid",
+                    "--portable-context-id",
+                    "--start-ns",
+                    "--end-ns",
+                    "--analyst-activity"
+                  ]
+                },
+                "event_rows": {
+                  "const": false
+                },
+                "cursor_flag": {
+                  "const": null
+                },
+                "request_metadata_event": {
+                  "const": null
+                },
+                "row_policy": {
+                  "const": "no-event-rows"
+                },
+                "cursor_binding": {
+                  "const": null
+                }
+              }
+            }
+          ]
+        },
+        "metadata_session_rows": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/metadataInterface"
+            },
+            {
+              "properties": {
+                "cli_argv_prefix": {
+                  "const": [
+                    "trace",
+                    "session-rows"
+                  ]
+                },
+                "output_schema": {
+                  "const": "browser-core.metadata-rows/1"
+                },
+                "source_kind": {
+                  "const": "session"
+                },
+                "required_flags": {
+                  "const": [
+                    "--session",
+                    "--expected-run-id"
+                  ]
+                },
+                "recommended_binding_flags": {
+                  "const": []
+                },
+                "selector_flags": {
+                  "const": [
+                    "--api",
+                    "--script-id",
+                    "--context-kind",
+                    "--portable-pid",
+                    "--portable-context-id",
+                    "--start-ns",
+                    "--end-ns",
+                    "--limit"
+                  ]
+                },
+                "event_rows": {
+                  "const": true
+                },
+                "cursor_flag": {
+                  "const": null
+                },
+                "request_metadata_event": {
+                  "const": "fetch.request.start"
+                },
+                "row_policy": {
+                  "const": "complete-only"
+                },
+                "cursor_binding": {
+                  "const": null
+                }
+              }
+            }
+          ]
+        },
+        "metadata_evidence_rows": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/metadataInterface"
+            },
+            {
+              "properties": {
+                "cli_argv_prefix": {
+                  "const": [
+                    "trace",
+                    "evidence-rows"
+                  ]
+                },
+                "output_schema": {
+                  "const": "browser-core.metadata-rows/1"
+                },
+                "source_kind": {
+                  "const": "immutable-evidence-bundle"
+                },
+                "required_flags": {
+                  "const": [
+                    "--bundle",
+                    "--reader-executable"
+                  ]
+                },
+                "recommended_binding_flags": {
+                  "const": [
+                    "--expected-sha256"
+                  ]
+                },
+                "selector_flags": {
+                  "const": [
+                    "--api",
+                    "--script-id",
+                    "--context-kind",
+                    "--portable-pid",
+                    "--portable-context-id",
+                    "--start-ns",
+                    "--end-ns",
+                    "--limit"
+                  ]
+                },
+                "event_rows": {
+                  "const": true
+                },
+                "cursor_flag": {
+                  "const": "--cursor"
+                },
+                "request_metadata_event": {
+                  "const": "fetch.request.start"
+                },
+                "row_policy": {
+                  "const": "complete-only"
+                },
+                "cursor_binding": {
+                  "const": "same-verified-bundle-digest-selectors-limit-and-snapshot"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "categories"
+      ],
+      "properties": {
+        "name": {
+          "enum": [
+            "causal",
+            "causal-stream",
+            "encoding",
+            "broad",
+            "source-identity",
+            "source-context"
+          ]
+        },
+        "categories": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 6,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "browser_core.debug",
+              "browser_core.stream",
+              "blink.bindings",
+              "blink.bindings.encoding",
+              "browser_core.source_identity",
+              "disabled-by-default-browser_core.source_context"
+            ]
+          }
+        }
+      }
+    },
+    "route": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "native_name",
+        "trace_category",
+        "category",
+        "name",
+        "emitters",
+        "patch",
+        "sources"
+      ],
+      "properties": {
+        "native_name": {
+          "type": "string",
+          "pattern": "^BrowserCore\\.[A-Za-z0-9.]+$",
+          "maxLength": 128
+        },
+        "trace_category": {
+          "enum": [
+            "browser_core.debug",
+            "browser_core.stream"
+          ]
+        },
+        "category": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9._-]*$",
+          "maxLength": 64
+        },
+        "name": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+          "maxLength": 256
+        },
+        "emitters": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 32
+        },
+        "patch": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[A-Za-z0-9._-]+\\.patch$",
+          "maxLength": 256
+        },
+        "sources": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024,
+            "pattern": "^[^\\u0000-\\u001f]+$"
+          }
+        }
+      }
+    },
+    "generatedBindings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "available",
+        "required_patch",
+        "categories",
+        "name_population"
+      ],
+      "properties": {
+        "available": {
+          "type": "boolean"
+        },
+        "required_patch": {
+          "const": "0039-browser-core-extended-family-observation.patch"
+        },
+        "categories": {
+          "const": [
+            "blink.bindings",
+            "blink.bindings.encoding"
+          ]
+        },
+        "name_population": {
+          "const": "build-generated-runtime-observations"
+        }
+      }
+    },
+    "nativeObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "trace_schema",
+        "trace_category_contract",
+        "scopes",
+        "routes_schema",
+        "routes",
+        "generated_bindings"
+      ],
+      "properties": {
+        "trace_schema": {
+          "const": "browser-core.trace-event/1"
+        },
+        "trace_category_contract": {
+          "const": "browser-core.trace-categories/8"
+        },
+        "scopes": {
+          "type": "array",
+          "minItems": 6,
+          "maxItems": 6,
+          "items": {
+            "$ref": "#/$defs/scope"
+          }
+        },
+        "routes_schema": {
+          "enum": [
+            "browser-core.native-event-routes/5",
+            "browser-core.native-event-routes/6",
+            "browser-core.native-event-routes/7",
+            "browser-core.native-event-routes/8"
+          ]
+        },
+        "routes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 128,
+          "items": {
+            "$ref": "#/$defs/route"
+          }
+        },
+        "generated_bindings": {
+          "$ref": "#/$defs/generatedBindings"
+        },
+        "compiler_input_identity": {
+          "$ref": "#/$defs/compilerInputIdentity"
+        },
+        "compiler_input_context_identity": {
+          "$ref": "#/$defs/compilerInputContextIdentity"
+        },
+        "compiler_input_realm_identity": {
+          "$ref": "#/$defs/compilerInputRealmIdentity"
+        }
+      }
+    },
+    "compilerInputIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "native_recording_available", "availability_basis", "required_scope",
+        "algorithm", "maximum_code_units", "unsalted"
+      ],
+      "properties": {
+        "native_recording_available": {"const": false},
+        "availability_basis": {"const": "not-in-native-series"},
+        "required_scope": {"const": "source-identity"},
+        "algorithm": {"const": "sha256-utf16le-compiler-input-v1"},
+        "maximum_code_units": {"const": 262144},
+        "unsalted": {"const": true}
+      }
+    },
+    "compilerInputContextIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "native_recording_available", "availability_basis", "required_scope",
+        "native_event", "algorithm", "maximum_code_units", "unsalted",
+        "known_candidate_gap"
+      ],
+      "properties": {
+        "native_recording_available": {"const": false},
+        "availability_basis": {"const": "not-in-native-series"},
+        "required_scope": {"const": "source-context"},
+        "native_event": {"const": "BrowserCore.ScriptSourceContext"},
+        "algorithm": {"const": "sha256-utf16le-compiler-input-v1"},
+        "maximum_code_units": {"const": 262144},
+        "unsalted": {"const": true},
+        "known_candidate_gap": {"const": "inspector-injected-isolated-world-scripts"}
+      }
+    },
+    "compilerInputRealmIdentity": {
+      "type": "object", "additionalProperties": false,
+      "required": ["native_recording_available", "availability_basis", "required_scope", "native_events", "match_command", "api_link_basis", "module_run_coverage", "known_candidate_gap"],
+      "properties": {
+        "native_recording_available": {"const": false},
+        "availability_basis": {"const": "not-in-native-series"},
+        "required_scope": {"const": "source-context"},
+        "native_events": {"const": ["BrowserCore.ScriptSourceContext", "BrowserCore.ScriptRun"]},
+        "match_command": {"const": "script-source-realm-match"},
+        "api_link_basis": {"const": "same-v8-context-world-root-script-and-thread"},
+        "module_run_coverage": {"const": "module-root-evaluation-attempt;static-dependencies-not-individual"},
+        "known_candidate_gap": {"const": "inspector-injected-isolated-world-scripts"}
+      }
+    },
+    "capture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "allowlist",
+        "reader_known",
+        "native_recording_available",
+        "required_patches",
+        "api_count",
+        "apis"
+      ],
+      "properties": {
+        "schema": {
+          "enum": [
+            "browser-core.inspection/1",
+            "browser-core.inspection/2",
+            "browser-core.inspection/3"
+          ]
+        },
+        "allowlist": {
+          "enum": [
+            "fingerprint-v1",
+            "fingerprint-v2",
+            "research-v3"
+          ]
+        },
+        "reader_known": {
+          "const": true
+        },
+        "native_recording_available": {
+          "type": "boolean"
+        },
+        "required_patches": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[0-9]{4}-[A-Za-z0-9._-]+\\.patch$",
+            "maxLength": 256
+          }
+        },
+        "api_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 256
+        },
+        "apis": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+            "maxLength": 256
+          }
+        }
+      }
+    },
+    "valueObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "captures"
+      ],
+      "properties": {
+        "captures": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "$ref": "#/$defs/capture"
+          }
+        }
+      }
+    },
+    "semantics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "capability_basis",
+        "native_route_is_runtime_observation",
+        "reader_known_api_is_runtime_observation",
+        "zero_observations_mean_unsupported",
+        "client_side_coverage_complete",
+        "server_side_architecture_observed",
+        "browser_launched",
+        "trace_read",
+        "active_probe",
+        "private_values_included"
+      ],
+      "properties": {
+        "capability_basis": {
+          "const": "verified-package-resources"
+        },
+        "native_route_is_runtime_observation": {
+          "const": false
+        },
+        "reader_known_api_is_runtime_observation": {
+          "const": false
+        },
+        "zero_observations_mean_unsupported": {
+          "const": false
+        },
+        "client_side_coverage_complete": {
+          "const": false
+        },
+        "server_side_architecture_observed": {
+          "const": false
+        },
+        "browser_launched": {
+          "const": false
+        },
+        "trace_read": {
+          "const": false
+        },
+        "active_probe": {
+          "const": false
+        },
+        "private_values_included": {
+          "const": false
+        }
+      }
+    },
+    "metadataInterface": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "available",
+        "input_schema",
+        "output_schema",
+        "browser_effect",
+        "cli_argv_prefix",
+        "source_kind",
+        "required_flags",
+        "recommended_binding_flags",
+        "selector_flags",
+        "event_rows",
+        "full_population_validated",
+        "identity_and_health_retained",
+        "private_values_included",
+        "cursor_flag",
+        "cursor_is_authority",
+        "request_metadata_event",
+        "max_emitted_json_bytes",
+        "outer_delivery_verified",
+        "row_policy",
+        "capture_requirement",
+        "portable_context_pair_required",
+        "cursor_binding"
+      ],
+      "properties": {
+        "available": {
+          "const": true
+        },
+        "input_schema": {
+          "const": null
+        },
+        "output_schema": {
+          "enum": [
+            "browser-core.metadata-inventory-query/1",
+            "browser-core.metadata-rows/1"
+          ]
+        },
+        "browser_effect": {
+          "const": "none"
+        },
+        "cli_argv_prefix": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "prefixItems": [
+            {
+              "const": "trace"
+            },
+            {
+              "enum": [
+                "session-inventory",
+                "evidence-inventory",
+                "session-rows",
+                "evidence-rows"
+              ]
+            }
+          ],
+          "items": false
+        },
+        "max_emitted_json_bytes": {
+          "const": 16384
+        },
+        "outer_delivery_verified": {
+          "const": false
+        },
+        "source_kind": {
+          "enum": [
+            "session",
+            "immutable-evidence-bundle"
+          ]
+        },
+        "required_flags": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^--[a-z-]+$"
+          }
+        },
+        "recommended_binding_flags": {
+          "type": "array",
+          "maxItems": 1,
+          "items": {
+            "const": "--expected-sha256"
+          }
+        },
+        "selector_flags": {
+          "type": "array",
+          "minItems": 8,
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^--[a-z-]+$"
+          }
+        },
+        "event_rows": {
+          "type": "boolean"
+        },
+        "full_population_validated": {
+          "const": true
+        },
+        "identity_and_health_retained": {
+          "const": true
+        },
+        "private_values_included": {
+          "const": false
+        },
+        "cursor_flag": {
+          "enum": [
+            null,
+            "--cursor"
+          ]
+        },
+        "cursor_is_authority": {
+          "const": false
+        },
+        "request_metadata_event": {
+          "enum": [
+            null,
+            "fetch.request.start"
+          ]
+        },
+        "row_policy": {
+          "enum": [
+            "complete-only",
+            "no-event-rows"
+          ]
+        },
+        "capture_requirement": {
+          "const": "metadata-only-zero-private-values"
+        },
+        "portable_context_pair_required": {
+          "const": true
+        },
+        "cursor_binding": {
+          "enum": [
+            null,
+            "same-verified-bundle-digest-selectors-limit-and-snapshot"
+          ]
+        }
+      }
+    }
+  }
+}

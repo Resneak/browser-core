@@ -1,0 +1,300 @@
+diff --git a/third_party/perfetto/protos/perfetto/common/trace_stats.proto b/third_party/perfetto/protos/perfetto/common/trace_stats.proto
+--- a/third_party/perfetto/protos/perfetto/common/trace_stats.proto
++++ b/third_party/perfetto/protos/perfetto/common/trace_stats.proto
+@@ -20,5 +20,5 @@
+ 
+ // Statistics for the internals of the tracing service.
+ //
+-// Next id: 20.
++// Next id: 24.
+ message TraceStats {
+@@ -240,3 +240,18 @@ message TraceStats {
+   // This diagnoses an unacknowledged stop, not a count of lost packets.
+   optional uint64 data_source_stop_timeouts = 19;
++
++  // Browser Core: bounded details for the most recent stop timeout. Names are
++  // represented by non-cryptographic FNV-1a hashes with their sign bit cleared;
++  // they identify known internal labels but do not authenticate them.
++  message DataSourceStopTimeoutDetail {
++    optional uint32 producer_id = 1;
++    optional uint64 data_source_instance_id = 2;
++    optional uint64 producer_name_fnv1a_63 = 3;
++    optional uint64 data_source_name_fnv1a_63 = 4;
++    optional uint32 state = 5;
++  }
++  optional uint64 data_source_stop_timeout_pending_instances = 20;
++  optional uint64 data_source_stop_timeout_pending_producers = 21;
++  repeated DataSourceStopTimeoutDetail data_source_stop_timeout_details = 22;
++  optional bool data_source_stop_timeout_details_truncated = 23;
+ }
+diff --git a/third_party/perfetto/src/trace_processor/importers/proto/proto_trace_reader.cc b/third_party/perfetto/src/trace_processor/importers/proto/proto_trace_reader.cc
+--- a/third_party/perfetto/src/trace_processor/importers/proto/proto_trace_reader.cc
++++ b/third_party/perfetto/src/trace_processor/importers/proto/proto_trace_reader.cc
+@@ -1096,4 +1096,40 @@ void ProtoTraceReader::ParseTraceStats(ConstBytes blob) {
+       stats::traced_data_source_stop_timeouts,
+       static_cast<int64_t>(evt.data_source_stop_timeouts()));
++  context_->stats_tracker->SetStats(
++      stats::traced_data_source_stop_timeout_pending_instances,
++      static_cast<int64_t>(
++          evt.data_source_stop_timeout_pending_instances()));
++  context_->stats_tracker->SetStats(
++      stats::traced_data_source_stop_timeout_pending_producers,
++      static_cast<int64_t>(
++          evt.data_source_stop_timeout_pending_producers()));
++  context_->stats_tracker->SetStats(
++      stats::traced_data_source_stop_timeout_details_truncated,
++      static_cast<int64_t>(
++          evt.data_source_stop_timeout_details_truncated()));
++  int timeout_detail_index = 0;
++  for (auto it = evt.data_source_stop_timeout_details(); it;
++       ++it, ++timeout_detail_index) {
++    protos::pbzero::TraceStats::DataSourceStopTimeoutDetail::Decoder detail(
++        *it);
++    context_->stats_tracker->SetIndexedStats(
++        stats::traced_data_source_stop_timeout_producer_id,
++        timeout_detail_index, static_cast<int64_t>(detail.producer_id()));
++    context_->stats_tracker->SetIndexedStats(
++        stats::traced_data_source_stop_timeout_instance_id,
++        timeout_detail_index,
++        static_cast<int64_t>(detail.data_source_instance_id()));
++    context_->stats_tracker->SetIndexedStats(
++        stats::traced_data_source_stop_timeout_producer_name_hash,
++        timeout_detail_index,
++        static_cast<int64_t>(detail.producer_name_fnv1a_63()));
++    context_->stats_tracker->SetIndexedStats(
++        stats::traced_data_source_stop_timeout_data_source_name_hash,
++        timeout_detail_index,
++        static_cast<int64_t>(detail.data_source_name_fnv1a_63()));
++    context_->stats_tracker->SetIndexedStats(
++        stats::traced_data_source_stop_timeout_state,
++        timeout_detail_index, static_cast<int64_t>(detail.state()));
++  }
+ 
+   if (evt.has_filter_stats()) {
+diff --git a/third_party/perfetto/src/trace_processor/importers/proto/proto_trace_reader_unittest.cc b/third_party/perfetto/src/trace_processor/importers/proto/proto_trace_reader_unittest.cc
+--- a/third_party/perfetto/src/trace_processor/importers/proto/proto_trace_reader_unittest.cc
++++ b/third_party/perfetto/src/trace_processor/importers/proto/proto_trace_reader_unittest.cc
+@@ -26,6 +26,7 @@
+ #include "perfetto/trace_processor/trace_blob.h"
+ #include "perfetto/trace_processor/trace_blob_view.h"
+ #include "protos/perfetto/common/builtin_clock.pbzero.h"
++#include "protos/perfetto/common/trace_stats.pbzero.h"
+ #include "protos/perfetto/trace/trace.pbzero.h"
+ #include "src/trace_processor/importers/common/clock_tracker.h"
+ #include "src/trace_processor/importers/common/global_args_tracker.h"
+@@ -341,5 +342,67 @@ TEST_F(ProtoTraceReaderTest, DeferredClockSnapshotSequenceScopedClock) {
+                    stats::clock_sync_failure_unknown_source_clock));
+ }
+ 
++TEST_F(ProtoTraceReaderTest, DataSourceStopTimeoutDetails) {
++  auto* trace_stats = trace_->add_packet()->set_trace_stats();
++  trace_stats->set_data_source_stop_timeouts(1);
++  trace_stats->set_data_source_stop_timeout_pending_instances(2);
++  trace_stats->set_data_source_stop_timeout_pending_producers(1);
++  trace_stats->set_data_source_stop_timeout_details_truncated(true);
++  auto* detail = trace_stats->add_data_source_stop_timeout_details();
++  detail->set_producer_id(7);
++  detail->set_data_source_instance_id(11);
++  detail->set_producer_name_fnv1a_63(13);
++  detail->set_data_source_name_fnv1a_63(17);
++  detail->set_state(3);
++  detail = trace_stats->add_data_source_stop_timeout_details();
++  detail->set_producer_id(7);
++  detail->set_data_source_instance_id(12);
++  detail->set_producer_name_fnv1a_63(19);
++  detail->set_data_source_name_fnv1a_63(23);
++  detail->set_state(3);
++
++  ASSERT_TRUE(Tokenize().ok());
++  EXPECT_EQ(host_context_.stats_tracker->GetStats(
++                stats::traced_data_source_stop_timeouts),
++            1);
++  EXPECT_EQ(host_context_.stats_tracker->GetStats(
++                stats::traced_data_source_stop_timeout_pending_instances),
++            2);
++  EXPECT_EQ(host_context_.stats_tracker->GetStats(
++                stats::traced_data_source_stop_timeout_pending_producers),
++            1);
++  EXPECT_EQ(host_context_.stats_tracker->GetStats(
++                stats::traced_data_source_stop_timeout_details_truncated),
++            1);
++  auto indexed = [&](size_t key, int index) {
++    return host_context_.stats_tracker->GetIndexedStats(key, index).value_or(
++        -1);
++  };
++  EXPECT_EQ(indexed(stats::traced_data_source_stop_timeout_producer_id, 0),
++            7);
++  EXPECT_EQ(indexed(stats::traced_data_source_stop_timeout_instance_id, 0),
++            11);
++  EXPECT_EQ(
++      indexed(stats::traced_data_source_stop_timeout_producer_name_hash, 0),
++      13);
++  EXPECT_EQ(indexed(
++                stats::traced_data_source_stop_timeout_data_source_name_hash,
++                0),
++            17);
++  EXPECT_EQ(indexed(stats::traced_data_source_stop_timeout_state, 0), 3);
++  EXPECT_EQ(indexed(stats::traced_data_source_stop_timeout_producer_id, 1),
++            7);
++  EXPECT_EQ(indexed(stats::traced_data_source_stop_timeout_instance_id, 1),
++            12);
++  EXPECT_EQ(
++      indexed(stats::traced_data_source_stop_timeout_producer_name_hash, 1),
++      19);
++  EXPECT_EQ(indexed(
++                stats::traced_data_source_stop_timeout_data_source_name_hash,
++                1),
++            23);
++  EXPECT_EQ(indexed(stats::traced_data_source_stop_timeout_state, 1), 3);
++}
++
+ }  // namespace
+ }  // namespace perfetto::trace_processor
+diff --git a/third_party/perfetto/src/trace_processor/storage/stats.h b/third_party/perfetto/src/trace_processor/storage/stats.h
+--- a/third_party/perfetto/src/trace_processor/storage/stats.h
++++ b/third_party/perfetto/src/trace_processor/storage/stats.h
+@@ -325,4 +325,12 @@
+     "trace was received"), \
+   F(traced_chunks_discarded,              kSingle,  kInfo,     kTrace, Scope::kMachineAndTrace,    ""), \
+   F(traced_data_source_stop_timeouts,     kSingle,  kError,    kTrace, Scope::kMachineAndTrace, "Producer stop acknowledgement deadline expired; capture may be incomplete"), \
++  F(traced_data_source_stop_timeout_pending_instances, kSingle, kError, kTrace, Scope::kMachineAndTrace, "Data-source instances still pending when the stop acknowledgement deadline expired"), \
++  F(traced_data_source_stop_timeout_pending_producers, kSingle, kError, kTrace, Scope::kMachineAndTrace, "Producers with instances still pending when the stop acknowledgement deadline expired"), \
++  F(traced_data_source_stop_timeout_details_truncated, kSingle, kError, kTrace, Scope::kMachineAndTrace, "One means the bounded pending-instance diagnostic omitted additional entries"), \
++  F(traced_data_source_stop_timeout_producer_id, kIndexed, kInfo, kTrace, Scope::kMachineAndTrace, "Ephemeral producer ID for a pending stop instance"), \
++  F(traced_data_source_stop_timeout_instance_id, kIndexed, kInfo, kTrace, Scope::kMachineAndTrace, "Ephemeral data-source instance ID pending at stop timeout"), \
++  F(traced_data_source_stop_timeout_producer_name_hash, kIndexed, kInfo, kTrace, Scope::kMachineAndTrace, "FNV-1a producer-name hash with the sign bit cleared; diagnostic identity only"), \
++  F(traced_data_source_stop_timeout_data_source_name_hash, kIndexed, kInfo, kTrace, Scope::kMachineAndTrace, "FNV-1a data-source-name hash with the sign bit cleared; diagnostic identity only"), \
++  F(traced_data_source_stop_timeout_state, kIndexed, kInfo, kTrace, Scope::kMachineAndTrace, "Native DataSourceInstanceState value at stop timeout"), \
+   F(traced_data_sources_registered,       kSingle,  kInfo,     kTrace, Scope::kMachineAndTrace,    ""), \
+diff --git a/third_party/perfetto/src/tracing/service/tracing_service_session.h b/third_party/perfetto/src/tracing/service/tracing_service_session.h
+--- a/third_party/perfetto/src/tracing/service/tracing_service_session.h
++++ b/third_party/perfetto/src/tracing/service/tracing_service_session.h
+@@ -171,6 +171,18 @@ struct TracingSession {
+   uint64_t flushes_requested = 0;
+   uint64_t flushes_succeeded = 0;
+   uint64_t flushes_failed = 0;
+   uint64_t data_source_stop_timeouts = 0;
++  uint64_t data_source_stop_timeout_pending_instances = 0;
++  uint64_t data_source_stop_timeout_pending_producers = 0;
++  bool data_source_stop_timeout_details_truncated = false;
++  struct DataSourceStopTimeoutDetail {
++    uint32_t producer_id;
++    uint64_t data_source_instance_id;
++    uint64_t producer_name_fnv1a_63;
++    uint64_t data_source_name_fnv1a_63;
++    uint32_t state;
++  };
++  std::vector<DataSourceStopTimeoutDetail>
++      data_source_stop_timeout_details;
+ 
+   // Outcome of the final Flush() done by FlushAndDisableTracing().
+diff --git a/third_party/perfetto/src/tracing/service/tracing_service_impl.cc b/third_party/perfetto/src/tracing/service/tracing_service_impl.cc
+--- a/third_party/perfetto/src/tracing/service/tracing_service_impl.cc
++++ b/third_party/perfetto/src/tracing/service/tracing_service_impl.cc
+@@ -2070,6 +2070,58 @@ void TracingServiceImpl::OnDisableTracingTimeout(TracingSessionID tsid) {
+   PERFETTO_ILOG("Timeout while waiting for ACKs for tracing session %" PRIu64,
+                 tsid);
+   PERFETTO_DCHECK(!tracing_session->AllDataSourceInstancesStopped());
+   ++tracing_session->data_source_stop_timeouts;
++  tracing_session->data_source_stop_timeout_pending_instances = 0;
++  tracing_session->data_source_stop_timeout_pending_producers = 0;
++  tracing_session->data_source_stop_timeout_details_truncated = false;
++  tracing_session->data_source_stop_timeout_details.clear();
++  constexpr size_t kMaxStopTimeoutDetails = 32;
++  std::set<ProducerID> pending_producers;
++  for (const auto& [producer_id, instance] :
++       tracing_session->data_source_instances) {
++    if (instance.state == DataSourceInstance::STOPPED)
++      continue;
++    ++tracing_session->data_source_stop_timeout_pending_instances;
++    pending_producers.insert(producer_id);
++    if (tracing_session->data_source_stop_timeout_details.size() >=
++        kMaxStopTimeoutDetails) {
++      tracing_session->data_source_stop_timeout_details_truncated = true;
++      continue;
++    }
++    ProducerEndpointImpl* producer = GetProducer(producer_id);
++    PERFETTO_DCHECK(producer);
++    base::FnvHasher producer_name_hash;
++    producer_name_hash.Update(producer->name_.data(), producer->name_.size());
++    base::FnvHasher data_source_name_hash;
++    data_source_name_hash.Update(instance.data_source_name.data(),
++                                 instance.data_source_name.size());
++    constexpr uint64_t kPositiveInt64Mask =
++        static_cast<uint64_t>(std::numeric_limits<int64_t>::max());
++    const uint64_t producer_hash =
++        producer_name_hash.digest() & kPositiveInt64Mask;
++    const uint64_t data_source_hash =
++        data_source_name_hash.digest() & kPositiveInt64Mask;
++    tracing_session->data_source_stop_timeout_details.push_back(
++        {static_cast<uint32_t>(producer_id),
++         static_cast<uint64_t>(instance.instance_id), producer_hash,
++         data_source_hash, static_cast<uint32_t>(instance.state)});
++    PERFETTO_ELOG(
++        "Browser Core stop timeout pending: producer=%u instance=%" PRIu64
++        " state=%u producer_name_fnv1a_63=%" PRIu64
++        " data_source_name_fnv1a_63=%" PRIu64,
++        static_cast<unsigned>(producer_id),
++        static_cast<uint64_t>(instance.instance_id),
++        static_cast<unsigned>(instance.state), producer_hash,
++        data_source_hash);
++  }
++  tracing_session->data_source_stop_timeout_pending_producers =
++      pending_producers.size();
++  PERFETTO_ELOG(
++      "Browser Core stop timeout summary: pending_instances=%" PRIu64
++      " pending_producers=%" PRIu64 " details=%zu truncated=%d",
++      tracing_session->data_source_stop_timeout_pending_instances,
++      tracing_session->data_source_stop_timeout_pending_producers,
++      tracing_session->data_source_stop_timeout_details.size(),
++      tracing_session->data_source_stop_timeout_details_truncated ? 1 : 0);
+   DisableTracingNotifyConsumerAndFlushFile(tracing_session);
+ }
+@@ -4086,3 +4138,19 @@ TraceStats TracingServiceImpl::GetTraceStats(TracingSession* tracing_session) {
+   trace_stats.set_data_source_stop_timeouts(
+       tracing_session->data_source_stop_timeouts);
++  trace_stats.set_data_source_stop_timeout_pending_instances(
++      tracing_session->data_source_stop_timeout_pending_instances);
++  trace_stats.set_data_source_stop_timeout_pending_producers(
++      tracing_session->data_source_stop_timeout_pending_producers);
++  trace_stats.set_data_source_stop_timeout_details_truncated(
++      tracing_session->data_source_stop_timeout_details_truncated);
++  for (const auto& detail :
++       tracing_session->data_source_stop_timeout_details) {
++    auto* output = trace_stats.add_data_source_stop_timeout_details();
++    output->set_producer_id(detail.producer_id);
++    output->set_data_source_instance_id(detail.data_source_instance_id);
++    output->set_producer_name_fnv1a_63(detail.producer_name_fnv1a_63);
++    output->set_data_source_name_fnv1a_63(
++        detail.data_source_name_fnv1a_63);
++    output->set_state(detail.state);
++  }
+   trace_stats.set_final_flush_outcome(tracing_session->final_flush_outcome);
+diff --git a/third_party/perfetto/src/tracing/service/tracing_service_impl_unittest.cc b/third_party/perfetto/src/tracing/service/tracing_service_impl_unittest.cc
+--- a/third_party/perfetto/src/tracing/service/tracing_service_impl_unittest.cc
++++ b/third_party/perfetto/src/tracing/service/tracing_service_impl_unittest.cc
+@@ -4203,4 +4203,8 @@ TEST_F(TracingServiceImplTest, OnTracingDisabledWaitsForDataSourceStopAcks) {
+   }
+   ASSERT_NE(final_stats, nullptr);
+   EXPECT_EQ(final_stats->data_source_stop_timeouts(), 0u);
++  EXPECT_EQ(final_stats->data_source_stop_timeout_pending_instances(), 0u);
++  EXPECT_EQ(final_stats->data_source_stop_timeout_pending_producers(), 0u);
++  EXPECT_TRUE(final_stats->data_source_stop_timeout_details().empty());
++  EXPECT_FALSE(final_stats->data_source_stop_timeout_details_truncated());
+ }
+@@ -4275,4 +4279,15 @@ TEST_F(TracingServiceImplTest, OnTracingDisabledCalledAnywaysInCaseOfTimeout) {
+   }
+   ASSERT_NE(final_stats, nullptr);
+   EXPECT_EQ(final_stats->data_source_stop_timeouts(), 1u);
++  EXPECT_EQ(final_stats->data_source_stop_timeout_pending_instances(), 1u);
++  EXPECT_EQ(final_stats->data_source_stop_timeout_pending_producers(), 1u);
++  ASSERT_EQ(final_stats->data_source_stop_timeout_details().size(), 1u);
++  const auto& detail = final_stats->data_source_stop_timeout_details()[0];
++  EXPECT_GT(detail.producer_id(), 0u);
++  EXPECT_EQ(detail.data_source_instance_id(), stopped_id);
++  EXPECT_GT(detail.producer_name_fnv1a_63(), 0u);
++  EXPECT_GT(detail.data_source_name_fnv1a_63(), 0u);
++  EXPECT_EQ(detail.state(),
++            static_cast<uint32_t>(DataSourceInstance::STOPPING));
++  EXPECT_FALSE(final_stats->data_source_stop_timeout_details_truncated());
+ }

@@ -1,0 +1,30 @@
+diff --git a/src/trace_processor/rpc/stdiod.cc b/src/trace_processor/rpc/stdiod.cc
+--- a/src/trace_processor/rpc/stdiod.cc
++++ b/src/trace_processor/rpc/stdiod.cc
+@@ -26,7 +26,10 @@
+ #include "perfetto/ext/base/utils.h"
+ #include "src/trace_processor/rpc/rpc.h"
+ 
+-#if !PERFETTO_BUILDFLAG(PERFETTO_OS_WIN)
++#if PERFETTO_BUILDFLAG(PERFETTO_OS_WIN)
++#include <fcntl.h>
++#include <io.h>
++#else
+ #include <unistd.h>
+ #endif
+ 
+@@ -38,6 +41,14 @@
+ namespace perfetto::trace_processor {
+ 
+ base::Status RunStdioRpcServer(Rpc& rpc) {
++#if PERFETTO_BUILDFLAG(PERFETTO_OS_WIN)
++  // Protobuf is a binary stream. CRT text mode expands LF on output and treats
++  // Ctrl-Z as EOF on input, corrupting both RPC framing and trace packet bytes.
++  if (_setmode(STDIN_FILENO, _O_BINARY) == -1 ||
++      _setmode(STDOUT_FILENO, _O_BINARY) == -1) {
++    return base::ErrStatus("Failed to configure binary RPC streams");
++  }
++#endif
+   char buffer[4096];
+   for (;;) {
+     auto ret = base::Read(STDIN_FILENO, buffer, base::ArraySize(buffer));

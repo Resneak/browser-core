@@ -1,0 +1,25 @@
+{
+  "schema": "browser-core.upstream/1",
+  "captured_at": "2026-08-02",
+  "chromium": {
+    "repository": "https://chromium.googlesource.com/chromium/src.git",
+    "revision": "bf6d8a66b43635a532bdad773407285fac0121e9",
+    "version": "153.0.7988.0"
+  },
+  "depot_tools": {
+    "repository": "https://chromium.googlesource.com/chromium/tools/depot_tools.git",
+    "revision": "e154c8eda5e63cbe85a765ae9d06e2b7af05139e"
+  },
+  "build": {
+    "target": "chrome",
+    "support_targets": ["trace_processor_shell"],
+    "output_directory": "out/BrowserCore",
+    "gn_args": [
+      "is_debug=false",
+      "is_component_build=false",
+      "symbol_level=1",
+      "blink_symbol_level=1",
+      "enable_blink_bindings_tracing=true"
+    ]
+  }
+}

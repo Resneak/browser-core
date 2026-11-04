@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "browser-core.trace-event/1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "run_id", "seq", "ts_monotonic_ns", "process", "event", "provenance"],
+  "properties": {
+    "schema": {"const": "browser-core.trace-event/1"},
+    "run_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "seq": {"type": "integer", "minimum": 0},
+    "ts_monotonic_ns": {"type": "integer", "minimum": 0},
+    "causal_parent_seq": {"type": ["integer", "null"], "minimum": 0},
+    "callback_parent_seq": {"type": ["integer", "null"], "minimum": 0},
+    "promise_parent_seq": {"type": ["integer", "null"], "minimum": 0},
+    "dynamic_code_parent_seq": {"type": ["integer", "null"], "minimum": 0},
+    "message_dispatch_parent_seq": {"type": ["integer", "null"], "minimum": 0},
+    "process": {"type": "object"},
+    "execution": {
+      "type": ["object", "null"],
+      "properties": {
+        "context_id": {"type": ["string", "null"]},
+        "frame_id": {"type": ["string", "null"]},
+        "worker_id": {"type": ["string", "null"]},
+        "script_id": {"type": ["string", "null"]}
+      }
+    },
+    "event": {"type": "object"},
+    "request": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["id", "method", "url_class", "body_bytes"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1, "maxLength": 512},
+        "method": {"type": "string", "minLength": 1, "maxLength": 64},
+        "url_class": {"type": "string", "minLength": 1, "maxLength": 4192},
+        "target_scope": {"enum": ["loopback", "external", "non-network"]},
+        "body_bytes": {
+          "type": "integer", "minimum": 0, "maximum": 9007199254740991
+        },
+        "body_sha256_16": {"type": "string", "pattern": "^[0-9a-f]{16}$"}
+      }
+    },
+    "value": {"type": ["object", "null"]},
+    "provenance": {
+      "type": "object",
+      "properties": {
+        "trace_category": {
+          "enum": ["browser_core.debug", "browser_core.stream", "blink.bindings", "blink.bindings.encoding"]
+        }
+      }
+    },
+    "detail": {"type": "object"}
+  }
+}

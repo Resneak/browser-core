@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "browser-core.source-match/1",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "status", "code"],
+      "properties": {
+        "schema": {"const": "browser-core.source-match/1"},
+        "status": {"const": "error"},
+        "code": {"const": "source-match-unavailable"}
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema", "status", "run_id", "trace_sha256", "trusted_digest_matched",
+        "trace_events", "dropped_events", "candidate_utf16_code_units",
+        "compiler_input_limit_units", "counts", "matches", "matches_truncated",
+        "linked_api_events_reported_matches", "linked_api_groups_total",
+        "linked_api_groups", "linked_api_groups_truncated", "linked_api_scope",
+        "limits"
+      ],
+      "properties": {
+        "schema": {"const": "browser-core.source-match/1"},
+        "status": {"enum": ["matched", "not-observed", "digest-coverage-limited", "digest-unavailable", "candidate-over-limit"]},
+        "run_id": {"type": "string", "minLength": 1, "maxLength": 128},
+        "trace_sha256": {"$ref": "#/$defs/sha256"},
+        "trusted_digest_matched": {"type": "boolean"},
+        "trace_events": {"$ref": "#/$defs/count"},
+        "dropped_events": {"$ref": "#/$defs/count"},
+        "candidate_utf16_code_units": {"$ref": "#/$defs/count"},
+        "compiler_input_limit_units": {"const": 262144},
+        "counts": {
+          "type": "object", "additionalProperties": false,
+          "required": ["dynamic_events", "observed_digests", "over_limit", "unavailable", "legacy_without_digest", "matches"],
+          "properties": {
+            "dynamic_events": {"$ref": "#/$defs/count"},
+            "observed_digests": {"$ref": "#/$defs/count"},
+            "over_limit": {"$ref": "#/$defs/count"},
+            "unavailable": {"$ref": "#/$defs/count"},
+            "legacy_without_digest": {"$ref": "#/$defs/count"},
+            "matches": {"$ref": "#/$defs/count"}
+          }
+        },
+        "matches": {"type": "array", "maxItems": 32, "items": {"$ref": "#/$defs/match"}},
+        "matches_truncated": {"type": "boolean"},
+        "linked_api_events_reported_matches": {"$ref": "#/$defs/count"},
+        "linked_api_groups_total": {"$ref": "#/$defs/count"},
+        "linked_api_groups": {"type": "array", "maxItems": 16, "items": {"$ref": "#/$defs/group"}},
+        "linked_api_groups_truncated": {"type": "boolean"},
+        "linked_api_scope": {"const": "first-32-reported-matches-only"},
+        "limits": {"type": "array", "minItems": 4, "maxItems": 4,
+                   "items": {"type": "string", "minLength": 1, "maxLength": 1024}}
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "count": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
+    "match": {
+      "type": "object", "additionalProperties": false,
+      "required": ["seq", "timestamp_ns", "pid", "dynamic_kind", "cache_status",
+                   "generated_script_id", "caller_script_id", "caller_status",
+                   "caller_parent_status", "linked_api_event_count"],
+      "properties": {
+        "seq": {"$ref": "#/$defs/count"},
+        "timestamp_ns": {"$ref": "#/$defs/count"},
+        "pid": {"type": "integer", "minimum": 1, "maximum": 9007199254740991},
+        "dynamic_kind": {"enum": ["eval", "function-constructor"]},
+        "cache_status": {"enum": ["compiled", "function-cache-hit", "shared-cache-hit"]},
+        "generated_script_id": {"type": ["integer", "null"], "minimum": 0},
+        "caller_script_id": {"type": ["integer", "null"], "minimum": 0},
+        "caller_status": {"type": ["string", "null"], "maxLength": 128},
+        "caller_parent_status": {"type": ["string", "null"], "maxLength": 128},
+        "linked_api_event_count": {"$ref": "#/$defs/count"}
+      }
+    },
+    "group": {
+      "type": "object", "additionalProperties": false,
+      "required": ["api", "count"],
+      "properties": {
+        "api": {"type": "string", "minLength": 1, "maxLength": 128},
+        "count": {"type": "integer", "minimum": 1, "maximum": 9007199254740991}
+      }
+    }
+  }
+}

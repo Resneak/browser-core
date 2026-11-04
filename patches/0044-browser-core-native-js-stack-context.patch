@@ -1,0 +1,97 @@
+diff --git a/third_party/blink/renderer/platform/bindings/runtime_call_stats.h b/third_party/blink/renderer/platform/bindings/runtime_call_stats.h
+--- a/third_party/blink/renderer/platform/bindings/runtime_call_stats.h
++++ b/third_party/blink/renderer/platform/bindings/runtime_call_stats.h
+@@ -39,6 +39,12 @@
+ 
+ class TracedValue;
+ 
++#if BUILDFLAG(BLINK_BINDINGS_TRACE_ENABLED)
++// Called only when the trace category is enabled. Records the nearest visible
++// JavaScript frame's native V8 context, never a last-seen script/realm guess.
++PLATFORM_EXPORT void AddBrowserCoreBindingAttribution(perfetto::EventContext&);
++#endif
++
+ // A simple counter used to track total execution count & time for a particular
+ // function/scope.
+ class PLATFORM_EXPORT RuntimeCallCounter {
+@@ -176,9 +182,11 @@
+ #endif
+ 
+ #if BUILDFLAG(BLINK_BINDINGS_TRACE_ENABLED)
+-#define BLINK_BINDINGS_TRACE_EVENT(trace_event_name)                    \
+-  TRACE_EVENT1("blink.bindings", trace_event_name, "script_id",        \
+-               v8::StackTrace::CurrentScriptId(v8::Isolate::GetCurrent()))
++#define BLINK_BINDINGS_TRACE_EVENT(trace_event_name)                   \
++  TRACE_EVENT("blink.bindings", trace_event_name,                      \
++              [](perfetto::EventContext ctx) {                        \
++                blink::AddBrowserCoreBindingAttribution(ctx);         \
++              })
+ #else
+ #define BLINK_BINDINGS_TRACE_EVENT(trace_event_name) \
+   do {                                               \
+@@ -187,8 +195,10 @@
+ 
+ #if BUILDFLAG(BLINK_BINDINGS_TRACE_ENABLED)
+ #define BLINK_BINDINGS_ENCODING_TRACE_EVENT(trace_event_name)          \
+-  TRACE_EVENT1("blink.bindings.encoding", trace_event_name, "script_id", \
+-               v8::StackTrace::CurrentScriptId(v8::Isolate::GetCurrent()))
++  TRACE_EVENT("blink.bindings.encoding", trace_event_name,             \
++              [](perfetto::EventContext ctx) {                        \
++                blink::AddBrowserCoreBindingAttribution(ctx);         \
++              })
+ #else
+ #define BLINK_BINDINGS_ENCODING_TRACE_EVENT(trace_event_name) \
+   do {                                                        \
+diff --git a/third_party/blink/renderer/platform/bindings/runtime_call_stats.cc b/third_party/blink/renderer/platform/bindings/runtime_call_stats.cc
+--- a/third_party/blink/renderer/platform/bindings/runtime_call_stats.cc
++++ b/third_party/blink/renderer/platform/bindings/runtime_call_stats.cc
+@@ -11,6 +11,8 @@
+ 
+ #include "base/compiler_specific.h"
+ #include "base/logging.h"
++#include "third_party/blink/renderer/platform/bindings/dom_wrapper_world.h"
++#include "third_party/blink/renderer/platform/bindings/script_state.h"
+ #include "base/time/default_tick_clock.h"
+ #include "third_party/blink/public/web/blink.h"
+ #include "third_party/blink/renderer/platform/bindings/v8_per_isolate_data.h"
+@@ -20,6 +22,40 @@
+ #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
+ 
+ namespace blink {
++
++#if BUILDFLAG(BLINK_BINDINGS_TRACE_ENABLED)
++void AddBrowserCoreBindingAttribution(perfetto::EventContext& event) {
++  event.AddDebugAnnotation("stack_context_schema", "browser-core.js-stack/1");
++  auto* isolate = v8::Isolate::GetCurrent();
++  if (!isolate) {
++    event.AddDebugAnnotation("stack_context_status", "no-isolate");
++    return;
++  }
++  v8::HandleScope handles(isolate);
++  // Preserve the old immediate-script number as a separate observation. V8's
++  // ScriptData deliberately reports the root script for eval/regexp frames.
++  event.AddDebugAnnotation("script_id", v8::StackTrace::CurrentScriptId(isolate));
++  std::array<v8::StackTrace::ScriptData, 1> storage;
++  auto frames = v8::StackTrace::CurrentScriptData(isolate, storage);
++  if (frames.empty()) {
++    event.AddDebugAnnotation("stack_context_status", "no-visible-js-frame");
++    return;
++  }
++  auto* state = ScriptState::MaybeFrom(isolate, frames.front().context);
++  if (!state) {
++    event.AddDebugAnnotation("stack_context_status", "non-blink-context");
++    return;
++  }
++  // ScriptState's token remains usable when per-context data is disposed.
++  // Do not inspect a document, dereference disposed per-context data, enter a
++  // realm, run JavaScript, or expose a frame across V8's origin filtering.
++  event.AddDebugAnnotation("stack_context_status",
++      state->ContextIsValid() ? "observed" : "limited-context");
++  event.AddDebugAnnotation("stack_v8_context_id", state->GetToken().ToString());
++  event.AddDebugAnnotation("stack_realm_id", state->World().GetWorldId());
++  event.AddDebugAnnotation("stack_root_script_id", frames.front().id);
++}
++#endif
+ 
+ void LogRuntimeCallStats(v8::Isolate* isolate) {
+   LOG(INFO) << "\n" << RuntimeCallStats::From(isolate)->ToString().Utf8();

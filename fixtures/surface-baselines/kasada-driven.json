@@ -1,0 +1,51 @@
+{
+ "api_name_count": 29,
+ "api_names": [
+  "api.AbortSignal.timeout",
+  "api.DOMException.constructor",
+  "api.Document.cookie.get",
+  "api.Document.currentScript.get",
+  "api.Document.readyState.get",
+  "api.Document.visibilityState.get",
+  "api.HTMLIFrameElement.constructor",
+  "api.HTMLScriptElement.constructor",
+  "api.HTMLScriptElement.src.get",
+  "api.Headers.constructor",
+  "api.Headers.get",
+  "api.Location.host.get",
+  "api.Location.protocol.get",
+  "api.Node.removeChild",
+  "api.PageTransitionEvent.constructor",
+  "api.Response.constructor",
+  "api.Response.headers.get",
+  "api.Storage.getItem",
+  "api.Storage.removeItem",
+  "api.Storage.setItem",
+  "api.URL.host.get",
+  "api.URL.protocol.get",
+  "api.Window.AbortSignal",
+  "api.Window.HTMLFormElement",
+  "api.Window.XMLHttpRequest",
+  "api.Window.fetch",
+  "api.Window.localStorage.get",
+  "api.fetch",
+  "network.fetch.request.start"
+ ],
+ "arms": 2,
+ "control_label": "control",
+ "generated_at": "2026-08-08T18:00:05.182889Z",
+ "label": "kasada-driven",
+ "measured_noise_floor": 0,
+ "non_claims": [
+  "a stable surface is not an acceptance or undetectability claim",
+  "drift means the collector changed, not that anything was bypassed",
+  "the noise floor is this host's, measured on these arms, not a vendor constant"
+ ],
+ "pairwise_differences": [
+  0
+ ],
+ "schema": "browser-core.product-script-surface-baseline/1",
+ "script_sha256_16": "f0eebd0b28b49fbb",
+ "surface_sha256": "52fa1544b5873497f7c280f767a378244733770fde5f7fadbbd10964022f7273",
+ "volatile_api_names": []
+}

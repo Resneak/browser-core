@@ -1,0 +1,59 @@
+diff --git a/base/trace_event/builtin_categories.h b/base/trace_event/builtin_categories.h
+index ad9f99848e..0000000000 100644
+--- a/base/trace_event/builtin_categories.h
++++ b/base/trace_event/builtin_categories.h
+@@ -82,6 +82,7 @@ PERFETTO_DEFINE_CATEGORIES_IN_NAMESPACE_WITH_ATTRS(
+     perfetto::Category("blink").SetTags("javascript", "rendering"),
+     perfetto::Category("blink.animations"),
+     perfetto::Category("blink.bindings"),
++    perfetto::Category("blink.bindings.encoding"),
+     perfetto::Category("blink.console"),
+     perfetto::Category("blink.resource"),
+     perfetto::Category("blink.task_attribution").SetDescription(
+diff --git a/third_party/blink/renderer/bindings/scripts/bind_gen/interface.py b/third_party/blink/renderer/bindings/scripts/bind_gen/interface.py
+index d18c01e6fc..0000000000 100644
+--- a/third_party/blink/renderer/bindings/scripts/bind_gen/interface.py
++++ b/third_party/blink/renderer/bindings/scripts/bind_gen/interface.py
+@@ -839,8 +839,19 @@ def _make_bindings_logging_id(cg_context):
+ def make_bindings_trace_event(cg_context):
+     assert isinstance(cg_context, CodeGenContext)
+ 
+-    return TextNode("BLINK_BINDINGS_TRACE_EVENT(\"{}\");".format(
+-        _make_bindings_logging_id(cg_context)))
++    encoding_interfaces = (
++        "TextDecoder",
++        "TextDecoderStream",
++        "TextEncoder",
++        "TextEncoderStream",
++    )
++    trace_macro = (
++        "BLINK_BINDINGS_ENCODING_TRACE_EVENT"
++        if cg_context.class_like.identifier in encoding_interfaces
++        else "BLINK_BINDINGS_TRACE_EVENT"
++    )
++    return TextNode('{}("{}");'.format(
++        trace_macro, _make_bindings_logging_id(cg_context)))
+ 
+ 
+ def make_check_argument_length(cg_context):
+diff --git a/third_party/blink/renderer/platform/bindings/runtime_call_stats.h b/third_party/blink/renderer/platform/bindings/runtime_call_stats.h
+index 49bbee75c4..0000000000 100644
+--- a/third_party/blink/renderer/platform/bindings/runtime_call_stats.h
++++ b/third_party/blink/renderer/platform/bindings/runtime_call_stats.h
+@@ -186,6 +186,16 @@ class PLATFORM_EXPORT RuntimeCallTimer {
+   } while (false)
+ #endif
+ 
++#if BUILDFLAG(BLINK_BINDINGS_TRACE_ENABLED)
++#define BLINK_BINDINGS_ENCODING_TRACE_EVENT(trace_event_name)          \
++  TRACE_EVENT1("blink.bindings.encoding", trace_event_name, "script_id", \
++               v8::StackTrace::CurrentScriptId(v8::Isolate::GetCurrent()))
++#else
++#define BLINK_BINDINGS_ENCODING_TRACE_EVENT(trace_event_name) \
++  do {                                                        \
++  } while (false)
++#endif
++
+ // Maintains a stack of timers and provides functions to manage recording scopes
+ // by pausing and resuming timers in the chain when entering and leaving a
+ // scope.

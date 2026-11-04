@@ -1,0 +1,79 @@
+diff --git a/third_party/blink/common/device_memory/approximated_device_memory.cc b/third_party/blink/common/device_memory/approximated_device_memory.cc
+--- a/third_party/blink/common/device_memory/approximated_device_memory.cc
++++ b/third_party/blink/common/device_memory/approximated_device_memory.cc
+@@ -6,12 +6,26 @@
+ 
+ #include "base/byte_size.h"
+ #include "base/check_op.h"
++#include "base/command_line.h"
+ #include "base/feature_list.h"
++#include "base/strings/string_number_conversions.h"
+ #include "base/system/sys_info.h"
+ #include "third_party/blink/public/common/features.h"
+ 
+ namespace blink {
+ 
++namespace {
++
++// Browser Core research override: substitutes a physical memory size, in MiB,
++// for the one this host actually has. The value is fed through the unmodified
++// rounding and clamping below rather than assigned to the exposed property, so
++// navigator.deviceMemory can only ever report a number this build could have
++// produced on some machine. There is no bypass of the clamp, and absent the
++// switch nothing on this path changes.
++constexpr char kBrowserCoreDeviceMemoryMBSwitch[] = "browser-core-device-memory-mb";
++
++}  // namespace
++
+ // static
+ float ApproximatedDeviceMemory::approximated_device_memory_gb_ = 0.0;
+ int64_t ApproximatedDeviceMemory::physical_memory_mb_ = 0;
+@@ -22,6 +36,19 @@
+     return;
+   DCHECK_EQ(0, physical_memory_mb_);
+   physical_memory_mb_ = ::base::SysInfo::AmountOfTotalPhysicalMemory().InMiB();
++
++  const ::base::CommandLine* command_line =
++      ::base::CommandLine::ForCurrentProcess();
++  if (command_line->HasSwitch(kBrowserCoreDeviceMemoryMBSwitch)) {
++    int64_t override_mb = 0;
++    if (::base::StringToInt64(
++            command_line->GetSwitchValueASCII(kBrowserCoreDeviceMemoryMBSwitch),
++            &override_mb) &&
++        override_mb > 0) {
++      physical_memory_mb_ = override_mb;
++    }
++  }
++
+   CalculateAndSetApproximatedDeviceMemory();
+ }
+ 
+diff --git a/content/browser/renderer_host/render_process_host_impl.cc b/content/browser/renderer_host/render_process_host_impl.cc
+--- a/content/browser/renderer_host/render_process_host_impl.cc
++++ b/content/browser/renderer_host/render_process_host_impl.cc
+@@ -326,6 +326,9 @@
+ // create. Only applies if it is set to a non-zero value.
+ size_t g_max_renderer_count_override = 0;
+ 
++constexpr char kBrowserCoreDeviceMemoryMBSwitch[] =
++    "browser-core-device-memory-mb";
++
+ bool g_run_renderer_in_process = false;
+ 
+ RendererMainThreadFactoryFunction g_renderer_main_thread_factory = nullptr;
+@@ -4027,6 +4030,15 @@
+   renderer_cmd->CopySwitchesFrom(
+       browser_cmd, switches::GetWebNNSwitchesForRendererProcess());
+ 
++  // ApproximatedDeviceMemory is computed in the renderer, so the override has
++  // to reach it the same way. Copying the value rather than re-reading the host
++  // keeps every renderer of one browser agreeing on a single number.
++  if (browser_cmd.HasSwitch(kBrowserCoreDeviceMemoryMBSwitch)) {
++    renderer_cmd->AppendSwitchASCII(
++        kBrowserCoreDeviceMemoryMBSwitch,
++        browser_cmd.GetSwitchValueASCII(kBrowserCoreDeviceMemoryMBSwitch));
++  }
++
+   // |switches::kGaiaConfig| can be set via browser command-line arguments,
+   // usually by developers working on signin code. The switch, however, cannot
+   // be passed as is, because the renderer cannot read the file anyway. In those

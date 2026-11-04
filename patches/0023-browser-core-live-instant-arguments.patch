@@ -1,0 +1,126 @@
+diff --git a/src/trace_processor/importers/common/slice_tracker.h b/src/trace_processor/importers/common/slice_tracker.h
+--- a/src/trace_processor/importers/common/slice_tracker.h
++++ b/src/trace_processor/importers/common/slice_tracker.h
+@@ -136,6 +136,11 @@
+     StartedSlice s = StartSlice(timestamp, duration, track_id, category,
+                                 raw_name, WantsArgs(args), overlap_out);
+     InvokeArgs(s.inserter, args);
++    if (duration == 0 && s.inserter &&
++        category == browser_core_debug_category_ &&
++        raw_name == browser_core_value_name_) {
++      CommitBrowserCoreInstantArgs(track_id);
++    }
+     return s.id;
+   }
+ 
+@@ -307,6 +312,7 @@
+                                                        StringId name,
+                                                        StringId category);
+ 
++  void CommitBrowserCoreInstantArgs(TrackId track_id);
+   void StackPop(TrackInfo& track_info);
+   void StackPush(TrackInfo& track_info,
+                  TrackId track_id,
+@@ -347,6 +353,9 @@
+   const StringId max_depth_parent_name_key_;
+   const StringId max_depth_current_name_key_;
+ 
++  const StringId browser_core_debug_category_;
++  const StringId browser_core_value_name_;
++
+   StackMap stacks_;
+   std::vector<TranslatableArgs> translatable_args_;
+ };
+diff --git a/src/trace_processor/importers/common/slice_tracker.cc b/src/trace_processor/importers/common/slice_tracker.cc
+--- a/src/trace_processor/importers/common/slice_tracker.cc
++++ b/src/trace_processor/importers/common/slice_tracker.cc
+@@ -51,7 +51,11 @@
+       max_depth_parent_name_key_(
+           context->storage->InternString("parent_slice_name")),
+       max_depth_current_name_key_(
+-          context->storage->InternString("current_slice_name")) {}
++          context->storage->InternString("current_slice_name")),
++      browser_core_debug_category_(
++          context->storage->InternString("browser_core.debug")),
++      browser_core_value_name_(
++          context->storage->InternString("BrowserCoreInspection.BindingValue")) {}
+ 
+ void SliceTracker::AddOverlapArgs(const OverlapInfo& info,
+                                   ArgsTracker::BoundInserter& inserter) const {
+@@ -476,6 +480,20 @@
+   return true;
+ }
+ 
++void SliceTracker::CommitBrowserCoreInstantArgs(TrackId track_id) {
++  auto* track_info = FindTrackInfo(track_id);
++  PERFETTO_DCHECK(track_info && !track_info->slice_stack.empty());
++  auto& info = track_info->slice_stack.back();
++  // An instant's callback has supplied all its native values. Publish them
++  // now; waiting for a subsequent event leaves a visible row with no args at
++  // some live parse boundaries. Keep the stack and parent/duration semantics.
++  // Preserve the existing EOF translation path for any translatable args.
++  if (info.args &&
++      !info.args->NeedsTranslation(*context_->args_translation_table)) {
++    info.args.reset();
++  }
++}
++
+ void SliceTracker::StackPop(TrackInfo& track_info) {
+   auto& stack = track_info.slice_stack;
+   SliceInfo& info = stack.back();
+diff --git a/src/trace_processor/importers/common/slice_tracker_unittest.cc b/src/trace_processor/importers/common/slice_tracker_unittest.cc
+--- a/src/trace_processor/importers/common/slice_tracker_unittest.cc
++++ b/src/trace_processor/importers/common/slice_tracker_unittest.cc
+@@ -88,6 +88,52 @@
+   TraceProcessorContext context_;
+ };
+ 
++TEST_F(SliceTrackerTest, BrowserCoreInstantArgsVisibleBeforeNextEvent) {
++  SliceTracker tracker(&context_);
++  constexpr TrackId track{22u};
++  const auto category = context_.storage->InternString("browser_core.debug");
++  const auto name = context_.storage->InternString("BrowserCoreInspection.BindingValue");
++  const auto parent = context_.storage->InternString("parent");
++  const auto key = context_.storage->InternString("debug.result_json");
++  tracker.Begin(1, track, category, parent);
++  const auto id = tracker.Scoped(2, track, category, name, 0,
++      [key](ArgsTracker::BoundInserter* args) {
++        args->AddArg(key, Variadic::Integer(24));
++      });
++  ASSERT_TRUE(id);
++  const auto& slices = context_.storage->slice_table();
++  ASSERT_EQ(slices.row_count(), 2u);
++  ASSERT_TRUE(slices[1].arg_set_id());
++  EXPECT_EQ(context_.storage->arg_table()[0].int_value(), 24);
++  EXPECT_EQ(slices[1].depth(), 1u);
++  EXPECT_EQ(slices[1].parent_id(), slices[0].id());
++  EXPECT_EQ(slices[0].dur(), -1);
++  tracker.End(5, track, category, parent);
++  EXPECT_EQ(slices[0].dur(), 4);
++  EXPECT_EQ(slices[1].dur(), 0);
++  EXPECT_EQ(context_.storage->arg_table().row_count(), 1u);
++}
++
++TEST_F(SliceTrackerTest, BrowserCoreEarlyArgsRequireExactInstant) {
++  constexpr TrackId track{22u};
++  const auto category = context_.storage->InternString("browser_core.debug");
++  const auto name = context_.storage->InternString("BrowserCoreInspection.BindingValue");
++  const auto other = context_.storage->InternString("unrelated");
++  const auto key = context_.storage->InternString("value");
++  for (int variant = 0; variant < 3; ++variant) {
++    SliceTracker tracker(&context_);
++    auto id = tracker.Scoped(10 * variant, track,
++        variant == 0 ? other : category, variant == 1 ? other : name,
++        variant == 2 ? 1 : 0,
++        [key](ArgsTracker::BoundInserter* args) {
++          args->AddArg(key, Variadic::Integer(7));
++        });
++    ASSERT_TRUE(id);
++    const auto& slices = context_.storage->slice_table();
++    EXPECT_FALSE(slices[slices.row_count() - 1].arg_set_id());
++  }
++}
++
+ TEST_F(SliceTrackerTest, OneSliceDetailed) {
+   SliceTracker tracker(&context_);
+ 

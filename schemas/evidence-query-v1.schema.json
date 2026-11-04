@@ -1,0 +1,519 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:browser-core:evidence-query:1",
+  "title": "Browser Core bounded evidence query for agents",
+  "description": "Saved-bundle and verified-session variants. The decoder additionally validates closed private-value, native-context, stack, pagination, population and cross-record semantics.",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema", "status", "bundle", "recording", "reader_runtime", "capture",
+        "query", "recording_health", "exporter_reported_health", "events", "semantics"
+      ],
+      "properties": {
+        "schema": {"const": "browser-core.evidence-query/1"},
+        "status": {"const": "ok"},
+        "bundle": {"$ref": "#/$defs/bundle"},
+        "recording": {"$ref": "#/$defs/recording"},
+        "reader_runtime": {"$ref": "#/$defs/readerRuntime"},
+        "capture": {"$ref": "#/$defs/capture"},
+        "query": {"$ref": "#/$defs/query"},
+        "recording_health": {"$ref": "#/$defs/health"},
+        "exporter_reported_health": {
+          "oneOf": [{"$ref": "#/$defs/health"}, {"type": "null"}]
+        },
+        "events": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {"$ref": "#/$defs/event"}
+        },
+        "semantics": {"$ref": "#/$defs/semantics"}
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "semantics": {
+                "properties": {"private_values_included": {"const": true}}
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "events": {"items": {"required": ["parameters", "result"]}}
+            }
+          },
+          "else": {
+            "properties": {
+              "events": {
+                "items": {
+                  "not": {
+                    "anyOf": [
+                      {"required": ["parameters"]},
+                      {"required": ["result"]}
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema", "status", "session", "snapshot", "reader_runtime", "capture",
+        "query", "recording_health", "events", "semantics"
+      ],
+      "properties": {
+        "schema": {"const": "browser-core.evidence-query/1"},
+        "status": {"const": "ok"},
+        "session": {"$ref": "#/$defs/session"},
+        "snapshot": {"$ref": "#/$defs/sessionSnapshot"},
+        "reader_runtime": {"$ref": "#/$defs/readerRuntime"},
+        "capture": {"$ref": "#/$defs/capture"},
+        "query": {"$ref": "#/$defs/sessionQuery"},
+        "recording_health": {"$ref": "#/$defs/health"},
+        "events": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {"$ref": "#/$defs/event"}
+        },
+        "semantics": {"$ref": "#/$defs/sessionSemantics"}
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "semantics": {
+                "properties": {"private_values_included": {"const": true}}
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "events": {"items": {"required": ["parameters", "result"]}}
+            }
+          },
+          "else": {
+            "properties": {
+              "events": {
+                "items": {
+                  "not": {
+                    "anyOf": [
+                      {"required": ["parameters"]},
+                      {"required": ["result"]}
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "status", "code"],
+      "properties": {
+        "schema": {"const": "browser-core.evidence-query/1"},
+        "status": {"const": "error"},
+        "code": {"enum": ["query-unavailable", "interrupted", "private-values-disabled", "metadata-query-revision-unavailable", "metadata-recording-contains-values", "metadata-realm-filter-unavailable", "metadata-attribution-ambiguous", "session-recording-unavailable", "capture-contract-unsupported"]}
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "decimal": {"type": "string", "pattern": "^(0|[1-9][0-9]{0,18})$"},
+    "token": {"type": ["string", "null"], "pattern": "^[0-9A-F]{32}$"},
+    "session": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["run_id", "binding"],
+      "properties": {
+        "run_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
+        "binding": {"const": "verified-session-and-recording-identity"}
+      }
+    },
+    "sessionSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_sha256", "snapshot_bytes", "source_bytes_observed",
+        "pending_source_bytes", "packets", "incomplete_tail_bytes", "source_phase",
+        "catching_up", "complete", "recording_settled", "browser_running",
+        "decoder_pending_possible"
+      ],
+      "properties": {
+        "source_sha256": {"$ref": "#/$defs/sha256"},
+        "snapshot_bytes": {"$ref": "#/$defs/decimal"},
+        "source_bytes_observed": {"$ref": "#/$defs/decimal"},
+        "pending_source_bytes": {"$ref": "#/$defs/decimal"},
+        "packets": {"$ref": "#/$defs/decimal"},
+        "incomplete_tail_bytes": {
+          "oneOf": [{"$ref": "#/$defs/decimal"}, {"type": "null"}]
+        },
+        "source_phase": {
+          "enum": ["live-prefix", "finalized-recording", "recovered-prefix", "interrupted-recording", "limited-recording"]
+        },
+        "catching_up": {"type": "boolean"},
+        "complete": {"type": "boolean"},
+        "recording_settled": {"type": "boolean"},
+        "browser_running": {"type": "boolean"},
+        "decoder_pending_possible": {"type": "boolean"}
+      }
+    },
+    "sessionQuery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "filters", "query_sha256", "requested_limit", "matching_events",
+        "snapshot_max_id", "ordering", "returned_events", "more_available",
+        "output_limited", "continuation"
+      ],
+      "properties": {
+        "filters": {"$ref": "#/$defs/filters"},
+        "query_sha256": {"$ref": "#/$defs/sha256"},
+        "requested_limit": {"type": "integer", "minimum": 1, "maximum": 100},
+        "matching_events": {"$ref": "#/$defs/decimal"},
+        "snapshot_max_id": {"$ref": "#/$defs/decimal"},
+        "ordering": {"const": "timestamp-descending-then-event-id-descending"},
+        "returned_events": {"type": "integer", "minimum": 0, "maximum": 100},
+        "more_available": {"type": "boolean"},
+        "output_limited": {"type": "boolean"},
+        "continuation": {"const": "not-available-for-mutable-session-snapshot"}
+      }
+    },
+    "sessionSemantics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "private_values_included", "api_filter", "snapshot_scope",
+        "continuation_supported", "event_ids_are_decoder_local",
+        "session_reference_authorizes_control", "binding_realm_is_initiating_caller",
+        "script_source_recorded", "document_url_is_fetch_provenance",
+        "proves_capture_complete", "server_side_architecture_observed",
+        "query_launched_browser", "active_probe"
+      ],
+      "properties": {
+        "private_values_included": {"type": "boolean"},
+        "api_filter": {"const": "exact-native-name"},
+        "snapshot_scope": {"const": "verified-ingested-recording-prefix"},
+        "continuation_supported": {"const": false},
+        "event_ids_are_decoder_local": {"const": true},
+        "session_reference_authorizes_control": {"const": false},
+        "binding_realm_is_initiating_caller": {"const": false},
+        "script_source_recorded": {"const": false},
+        "document_url_is_fetch_provenance": {"const": false},
+        "proves_capture_complete": {"const": false},
+        "server_side_architecture_observed": {"const": false},
+        "query_launched_browser": {"const": false},
+        "active_probe": {"const": false}
+      }
+    },
+    "bundle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha256", "expected_digest_matched", "authenticity"],
+      "properties": {
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "expected_digest_matched": {"type": "boolean"},
+        "authenticity": {"const": "unsigned-exporter-metadata"}
+      }
+    },
+    "recording": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha256", "bytes", "packets", "source_bytes", "excluded_tail_bytes", "source_phase"],
+      "properties": {
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "bytes": {"$ref": "#/$defs/decimal"},
+        "packets": {"$ref": "#/$defs/decimal"},
+        "source_bytes": {"$ref": "#/$defs/decimal"},
+        "excluded_tail_bytes": {"$ref": "#/$defs/decimal"},
+        "source_phase": {
+          "enum": ["live-prefix", "finalized-recording", "recovered-prefix", "interrupted-recording", "limited-recording"]
+        }
+      }
+    },
+    "build": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provenance", "executable_sha256_16", "runtime_bundle_sha256_16", "attestation_created_at"],
+      "properties": {
+        "provenance": {"const": "attested-browser-core"},
+        "executable_sha256_16": {"type": "string", "pattern": "^[0-9a-f]{16}$"},
+        "runtime_bundle_sha256_16": {"type": "string", "pattern": "^[0-9a-f]{16}$"},
+        "attestation_created_at": {"type": "string", "maxLength": 64, "format": "date-time"}
+      }
+    },
+    "readerRuntime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "producer_build", "reader_build"],
+      "properties": {
+        "mode": {"enum": ["producer-build", "compatible-reader"]},
+        "producer_build": {"$ref": "#/$defs/build"},
+        "reader_build": {"$ref": "#/$defs/build"}
+      }
+    },
+    "capture": {
+      "enum": [
+        {"schema": "browser-core.inspection/1", "allowlist": "fingerprint-v1"},
+        {"schema": "browser-core.inspection/2", "allowlist": "fingerprint-v2"},
+        {"schema": "browser-core.inspection/3", "allowlist": "research-v3"}
+      ]
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pid", "context_id", "realm_id"],
+      "properties": {
+        "pid": {"$ref": "#/$defs/decimal"},
+        "context_id": {"type": "string", "pattern": "^[0-9A-F-]{1,64}$"},
+        "realm_id": {"$ref": "#/$defs/decimal"}
+      }
+    },
+    "filters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["search", "script", "context"],
+      "properties": {
+        "search": {"const": ""},
+        "script": {"type": "string", "pattern": "^(-1|0|[1-9][0-9]{0,18})?$"},
+        "context": {"enum": ["", "window", "worker", "other"]},
+        "apis": {
+          "type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$"}
+        },
+        "scope": {"$ref": "#/$defs/scope"},
+        "start_ns": {"$ref": "#/$defs/decimal"},
+        "end_ns": {"$ref": "#/$defs/decimal"}
+      }
+    },
+    "query": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "filters", "query_sha256", "requested_limit", "matching_events",
+        "snapshot_max_id", "ordering", "page", "returned_events",
+        "more_available", "next_cursor", "output_limited"
+      ],
+      "properties": {
+        "filters": {"$ref": "#/$defs/filters"},
+        "query_sha256": {"$ref": "#/$defs/sha256"},
+        "requested_limit": {"type": "integer", "minimum": 1, "maximum": 100},
+        "matching_events": {"$ref": "#/$defs/decimal"},
+        "snapshot_max_id": {"$ref": "#/$defs/decimal"},
+        "ordering": {"const": "timestamp-descending-then-event-id-descending"},
+        "page": {"enum": ["first", "continuation"]},
+        "returned_events": {"type": "integer", "minimum": 0, "maximum": 100},
+        "more_available": {"type": "boolean"},
+        "next_cursor": {
+          "oneOf": [
+            {"type": "string", "minLength": 1, "maxLength": 1024, "pattern": "^[A-Za-z0-9_=-]+$"},
+            {"type": "null"}
+          ]
+        },
+        "output_limited": {"type": "boolean"}
+      }
+    },
+    "context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "realm_id"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[0-9A-F-]{1,64}$"},
+        "kind": {"enum": ["window", "worker", "other"]},
+        "realm_id": {"$ref": "#/$defs/decimal"}
+      }
+    },
+    "document": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "reason", "not_fetch_provenance"],
+          "properties": {
+            "status": {"const": "unavailable"},
+            "reason": {"enum": ["length-limit", "invalid-url", "digest-unavailable"]},
+            "not_fetch_provenance": {"const": true}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "display", "url_sha256", "not_fetch_provenance"],
+          "properties": {
+            "status": {"const": "native-context-url"},
+            "display": {"type": "string", "maxLength": 512},
+            "url_sha256": {"$ref": "#/$defs/sha256"},
+            "not_fetch_provenance": {"const": true}
+          }
+        }
+      ]
+    },
+    "bindingRealm": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "kind", "reason"],
+          "properties": {
+            "status": {"const": "not-recorded"},
+            "kind": {"enum": ["window", "worker", "other"]},
+            "reason": {"const": "native-context-metadata-not-recorded"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "kind", "v8_context_id", "reason"],
+          "properties": {
+            "status": {"const": "native-limited"},
+            "kind": {"enum": ["window", "worker", "other"]},
+            "v8_context_id": {"type": "string", "pattern": "^[0-9A-F]{32}$"},
+            "reason": {"const": "invalid-script-context"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status", "kind", "v8_context_id", "document_id", "frame_id",
+            "parent_frame_id", "worker_id", "parent_context_id", "document"
+          ],
+          "properties": {
+            "status": {"const": "native-observed"},
+            "kind": {
+              "enum": ["page", "frame", "detached-window", "dedicated-worker", "shared-worker", "service-worker", "worker", "other"]
+            },
+            "v8_context_id": {"type": "string", "pattern": "^[0-9A-F]{32}$"},
+            "document_id": {"$ref": "#/$defs/token"},
+            "frame_id": {"$ref": "#/$defs/token"},
+            "parent_frame_id": {"$ref": "#/$defs/token"},
+            "worker_id": {"$ref": "#/$defs/token"},
+            "parent_context_id": {"$ref": "#/$defs/token"},
+            "document": {"$ref": "#/$defs/document"}
+          }
+        }
+      ]
+    },
+    "jsStack": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["schema", "status"],
+          "properties": {
+            "schema": {"const": "browser-core.js-stack/1"},
+            "status": {"enum": ["no-isolate", "no-visible-js-frame", "non-blink-context"]}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["schema", "status", "v8_context_id", "realm_id", "root_script_number"],
+          "properties": {
+            "schema": {"const": "browser-core.js-stack/1"},
+            "status": {"enum": ["observed", "limited-context"]},
+            "v8_context_id": {"type": "string", "pattern": "^[0-9A-F]{32}$"},
+            "realm_id": {"type": "integer", "minimum": 0, "maximum": 2147483647},
+            "root_script_number": {"type": "integer", "minimum": 1, "maximum": 2147483647}
+          }
+        }
+      ]
+    },
+    "validatedPayload": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 16,
+      "description": "Closed payload shapes and size/cross-field rules are enforced by the native inspection decoder before publication."
+    },
+    "event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "event_id", "timestamp_ns", "process_id", "thread_id", "api", "context",
+        "script_id", "completion", "binding_realm"
+      ],
+      "properties": {
+        "event_id": {"$ref": "#/$defs/decimal"},
+        "timestamp_ns": {"$ref": "#/$defs/decimal"},
+        "process_id": {"$ref": "#/$defs/decimal"},
+        "thread_id": {"$ref": "#/$defs/decimal"},
+        "api": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$"},
+        "context": {"$ref": "#/$defs/context"},
+        "script_id": {"type": "string", "pattern": "^(-1|0|[1-9][0-9]{0,18})$"},
+        "completion": {"enum": ["returned", "exception", "input-copied"]},
+        "binding_realm": {"$ref": "#/$defs/bindingRealm"},
+        "js_stack": {"$ref": "#/$defs/jsStack"},
+        "parameters": {"$ref": "#/$defs/validatedPayload"},
+        "result": {"$ref": "#/$defs/validatedPayload"}
+      }
+    },
+    "health": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "capture_stats_seen", "counters_truncated", "sorter_dropped_events", "proves_complete", "counters"],
+      "properties": {
+        "status": {"enum": ["issues-reported", "no-issues-reported", "awaiting-capture-stats"]},
+        "capture_stats_seen": {"type": "boolean"},
+        "counters_truncated": {"type": "boolean"},
+        "sorter_dropped_events": {"$ref": "#/$defs/decimal"},
+        "proves_complete": {"const": false},
+        "counters": {
+          "type": "array",
+          "maxItems": 128,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "value"],
+            "properties": {
+              "name": {
+                "enum": ["track_event_parser_errors", "track_event_tokenizer_errors", "traced_buf_bytes_overwritten", "traced_buf_chunks_overwritten", "traced_buf_chunks_discarded", "browser_core_observer_omissions", "traced_data_source_stop_timeouts", "traced_data_source_stop_timeout_pending_instances", "traced_data_source_stop_timeout_pending_producers", "traced_data_source_stop_timeout_details_truncated"]
+              },
+              "name_sha256": {"$ref": "#/$defs/sha256"},
+              "kind": {"enum": ["loss", "error"]},
+              "value": {"$ref": "#/$defs/decimal"}
+            },
+            "oneOf": [
+              {"required": ["name"], "not": {"required": ["name_sha256"]}},
+              {"required": ["name_sha256"], "not": {"required": ["name"]}}
+            ]
+          }
+        }
+      }
+    },
+    "semantics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "private_values_included", "api_filter", "pagination_snapshot",
+        "cursor_authenticated", "cursor_authorizes_actions", "event_ids_are_decoder_local",
+        "binding_realm_is_initiating_caller", "script_source_recorded",
+        "document_url_is_fetch_provenance", "proves_capture_complete",
+        "server_side_architecture_observed", "browser_launched", "active_probe"
+      ],
+      "properties": {
+        "private_values_included": {"type": "boolean"},
+        "api_filter": {"const": "exact-native-name"},
+        "pagination_snapshot": {"const": "verified-immutable-bundle"},
+        "cursor_authenticated": {"const": false},
+        "cursor_authorizes_actions": {"const": false},
+        "event_ids_are_decoder_local": {"const": true},
+        "binding_realm_is_initiating_caller": {"const": false},
+        "script_source_recorded": {"const": false},
+        "document_url_is_fetch_provenance": {"const": false},
+        "proves_capture_complete": {"const": false},
+        "server_side_architecture_observed": {"const": false},
+        "browser_launched": {"const": false},
+        "active_probe": {"const": false}
+      }
+    }
+  }
+}

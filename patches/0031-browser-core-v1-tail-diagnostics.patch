@@ -1,0 +1,32 @@
+diff --git a/src/tracing/service/trace_buffer_v1.cc b/src/tracing/service/trace_buffer_v1.cc
+--- a/src/tracing/service/trace_buffer_v1.cc
++++ b/src/tracing/service/trace_buffer_v1.cc
+@@ -398,6 +398,14 @@
+               meta.num_fragments_read == meta.num_fragments &&
+               !meta.last_read_packet_skipped() &&
+               !(meta.flags & (kChunkNeedsPatching | kLastPacketContinuesOnNextChunk))});
++      if (!last_evicted_chunk_.at(sequence).clean_tail) {
++        PERFETTO_ELOG("Browser Core V1 uncertain eviction: p=%u w=%u id=%u "
++                      "complete=%d read=%u fragments=%u skipped=%d flags=%u",
++                      key.producer_id, key.writer_id, key.chunk_id,
++                      meta.is_complete(), meta.num_fragments_read,
++                      meta.num_fragments, meta.last_read_packet_skipped(),
++                      meta.flags);
++      }
+     }
+     index_.erase(it);
+   }
+@@ -647,6 +655,13 @@
+           retired->second.id + 1 == read_iter_.chunk_id()) {
+         previous_packet_dropped = false;
+       }
++      if (previous_packet_dropped && retired != last_evicted_chunk_.end()) {
++        PERFETTO_ELOG("Browser Core V1 continuity unknown: p=%u w=%u id=%u "
++                      "last=%u clean=%d flags=%u fragments=%u",
++                      trusted_producer_id, writer_id, read_iter_.chunk_id(),
++                      retired->second.id, retired->second.clean_tail,
++                      chunk_meta->flags, chunk_meta->num_fragments);
++      }
+     }
+ 
+     while (chunk_meta->num_fragments_read < chunk_meta->num_fragments) {

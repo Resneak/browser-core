@@ -1,0 +1,233 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:browser-core:agent-research-plan:1",
+  "title": "Browser Core bounded research plan over verified saved evidence",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "status", "code"],
+      "properties": {
+        "schema": {"const": "browser-core.agent-research-plan/1"},
+        "status": {"const": "error"},
+        "code": {"enum": ["plan-unavailable", "interrupted"]}
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema", "status", "basis", "inventory", "evidence_quality",
+        "next_actions", "unresolved_dimensions", "semantics"
+      ],
+      "properties": {
+        "schema": {"const": "browser-core.agent-research-plan/1"},
+        "status": {"const": "ok"},
+        "basis": {"$ref": "#/$defs/basis"},
+        "inventory": {"$ref": "#/$defs/inventory"},
+        "evidence_quality": {"$ref": "#/$defs/evidenceQuality"},
+        "next_actions": {
+          "type": "array", "minItems": 7, "maxItems": 8,
+          "items": {"$ref": "#/$defs/action"}
+        },
+        "unresolved_dimensions": {
+          "type": "array", "minItems": 7, "maxItems": 7,
+          "items": {"$ref": "#/$defs/dimension"}
+        },
+        "semantics": {"$ref": "#/$defs/semantics"}
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "apiName": {
+      "type": "string", "minLength": 1, "maxLength": 256,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "techniqueName": {
+      "type": "string", "minLength": 1, "maxLength": 64,
+      "pattern": "^[a-z][a-z0-9-]*$"
+    },
+    "basis": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "kind", "bundle_sha256", "expected_digest_matched", "capture_schema",
+        "bundle_authenticity", "allowlist", "recording_sha256", "recording_source_phase"
+      ],
+      "properties": {
+        "kind": {"const": "verified-saved-evidence"},
+        "bundle_sha256": {"$ref": "#/$defs/sha256"},
+        "expected_digest_matched": {"const": true},
+        "bundle_authenticity": {"const": "unsigned-exporter-metadata"},
+        "capture_schema": {
+          "enum": ["browser-core.inspection/1", "browser-core.inspection/2", "browser-core.inspection/3"]
+        },
+        "allowlist": {"enum": ["fingerprint-v1", "fingerprint-v2", "research-v3"]},
+        "recording_sha256": {"$ref": "#/$defs/sha256"},
+        "recording_source_phase": {
+          "enum": [
+            "live-prefix", "finalized-recording", "recovered-prefix",
+            "interrupted-recording", "limited-recording"
+          ]
+        }
+      }
+    },
+    "queryTarget": {
+      "type": "object", "additionalProperties": false,
+      "required": ["api", "technique", "completion_compatible_records"],
+      "properties": {
+        "api": {"$ref": "#/$defs/apiName"},
+        "technique": {"$ref": "#/$defs/techniqueName"},
+        "completion_compatible_records": {"type": "integer", "minimum": 1}
+      }
+    },
+    "technique": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "technique", "reader_known_apis", "observed_apis", "not_observed_apis",
+        "records", "observed_api_names", "status"
+      ],
+      "properties": {
+        "technique": {"$ref": "#/$defs/techniqueName"},
+        "reader_known_apis": {"type": "integer", "minimum": 1, "maximum": 256},
+        "observed_apis": {"type": "integer", "minimum": 0, "maximum": 256},
+        "not_observed_apis": {"type": "integer", "minimum": 0, "maximum": 256},
+        "records": {"type": "integer", "minimum": 0},
+        "observed_api_names": {
+          "type": "array", "maxItems": 256, "uniqueItems": true,
+          "items": {"$ref": "#/$defs/apiName"}
+        },
+        "status": {"enum": ["observed", "not-observed"]}
+      }
+    },
+    "inventory": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "binding_value_records", "completion_compatible_value_records",
+        "queryable_value_records", "reader_known_apis", "observed_apis",
+        "not_observed_apis", "query_target_policy",
+        "query_target_technique_coverage_complete", "untargeted_observed_techniques",
+        "query_targets", "techniques"
+      ],
+      "properties": {
+        "binding_value_records": {"type": "integer", "minimum": 0},
+        "completion_compatible_value_records": {"type": "integer", "minimum": 0},
+        "queryable_value_records": {"type": "integer", "minimum": 0},
+        "reader_known_apis": {"type": "integer", "minimum": 1, "maximum": 256},
+        "observed_apis": {"type": "integer", "minimum": 0, "maximum": 256},
+        "not_observed_apis": {"type": "integer", "minimum": 0, "maximum": 256},
+        "query_target_policy": {"const": "technique-diverse-then-population"},
+        "query_target_technique_coverage_complete": {"type": "boolean"},
+        "untargeted_observed_techniques": {
+          "type": "array", "maxItems": 64, "uniqueItems": true,
+          "items": {"$ref": "#/$defs/techniqueName"}
+        },
+        "query_targets": {
+          "type": "array", "maxItems": 8, "uniqueItems": true,
+          "items": {"$ref": "#/$defs/queryTarget"}
+        },
+        "techniques": {
+          "type": "array", "minItems": 1, "maxItems": 64, "uniqueItems": true,
+          "items": {"$ref": "#/$defs/technique"}
+        }
+      }
+    },
+    "evidenceQuality": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "recording_health", "capture_stats_seen", "sorter_dropped_events",
+        "diagnostic_counters_truncated", "capture_completeness_proved",
+        "nonqueryable_binding_records", "thread_process_unlinked_records",
+        "capture_envelope_mismatched_records", "unrecognized_api_records",
+        "completion_incompatible_records"
+      ],
+      "properties": {
+        "recording_health": {"enum": ["issues-reported", "no-issues-reported", "awaiting-capture-stats"]},
+        "capture_stats_seen": {"type": "boolean"},
+        "diagnostic_counters_truncated": {"type": "boolean"},
+        "sorter_dropped_events": {"type": "string", "pattern": "^[0-9]+$", "maxLength": 32},
+        "capture_completeness_proved": {"const": false},
+        "nonqueryable_binding_records": {"type": "integer", "minimum": 0},
+        "thread_process_unlinked_records": {"type": "integer", "minimum": 0},
+        "capture_envelope_mismatched_records": {"type": "integer", "minimum": 0},
+        "unrecognized_api_records": {"type": "integer", "minimum": 0},
+        "completion_incompatible_records": {"type": "integer", "minimum": 0}
+      }
+    },
+    "action": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "id", "priority", "interface", "reason", "target_apis",
+        "include_private_values", "page_until_cursor_null"
+      ],
+      "properties": {
+        "id": {
+          "enum": [
+            "repair-evidence-quality", "query-observed-values", "capture-executed-workload",
+            "map-versioned-client-artifacts", "correlate-broad-client-events",
+            "recover-obfuscated-execution", "trace-state-and-request-provenance",
+            "compare-browser-client-wire",
+            "measure-authorized-server-outcome"
+          ]
+        },
+        "priority": {"type": "integer", "minimum": 1, "maximum": 8},
+        "interface": {
+          "enum": [
+            "saved-evidence-query", "research-control",
+            "artifact-acquisition-and-hashing", "trace-collect-and-scoped-queries",
+            "offline-static-and-rehost", "captured-traffic-analysis",
+            "transport-comparison",
+            "external-authorized-experiment"
+          ]
+        },
+        "reason": {"type": "string", "minLength": 1, "maxLength": 512},
+        "target_apis": {
+          "type": "array", "maxItems": 8, "uniqueItems": true,
+          "items": {"$ref": "#/$defs/apiName"}
+        },
+        "include_private_values": {"type": "boolean"},
+        "page_until_cursor_null": {"type": "boolean"}
+      }
+    },
+    "dimension": {
+      "type": "object", "additionalProperties": false,
+      "required": ["dimension", "state"],
+      "properties": {
+        "dimension": {
+          "enum": [
+            "versioned-client-artifacts", "whole-client-execution",
+            "obfuscated-program-semantics", "state-and-request-provenance",
+            "renderer-network-causality", "transport-fingerprint-equivalence",
+            "transport-and-server-decision"
+          ]
+        },
+        "state": {
+          "enum": ["not-established-by-value-bundle", "not-observed-by-this-artifact"]
+        }
+      }
+    },
+    "semantics": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "input_was_digest_verified", "private_values_read", "browser_launched",
+        "active_probe", "not_observed_means_unsupported",
+        "client_side_coverage_complete", "server_side_architecture_observed",
+        "research_plan_is_proof", "external_interfaces_verified",
+        "producer_build_is_independently_attested", "target_authorization_verified"
+      ],
+      "properties": {
+        "input_was_digest_verified": {"const": true},
+        "private_values_read": {"const": false},
+        "browser_launched": {"const": false},
+        "active_probe": {"const": false},
+        "not_observed_means_unsupported": {"const": false},
+        "client_side_coverage_complete": {"const": false},
+        "server_side_architecture_observed": {"const": false},
+        "research_plan_is_proof": {"const": false},
+        "external_interfaces_verified": {"const": false},
+        "producer_build_is_independently_attested": {"const": false},
+        "target_authorization_verified": {"const": false}
+      }
+    }
+  }
+}

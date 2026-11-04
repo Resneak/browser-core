@@ -1,0 +1,822 @@
+{
+  "schema": "browser-core.patch-series/2",
+  "chromium_revision": "bf6d8a66b43635a532bdad773407285fac0121e9",
+  "patches": [
+    {
+      "file": "0001-browser-core-evaluation-automation-surface.patch",
+      "sha256": "21041badf26049b9647113ca1c5c612308f0338b0c9259fa6235b9dd4e3efc9c",
+      "purpose": "Keep explicit Browser Core evaluation transport from changing navigator.webdriver",
+      "component": "content browser-to-renderer command line + child runtime features",
+      "classification": "interactive-evaluation"
+    },
+    {
+      "file": "0002-browser-core-canvas-track-event.patch",
+      "sha256": "6e0efa763feb06e4773920be84591cae86f95532a5f68d83b7dafe48e4c8506e",
+      "purpose": "Register the Browser Core causal and stream Perfetto categories and emit a metadata-only canvas readback event",
+      "component": "base tracing + Blink canvas",
+      "classification": "passive-observation"
+    },
+    {
+      "file": "0003-browser-core-context-and-causality-track-events.patch",
+      "sha256": "09413a6dcdcd71ad45ff43fce4cb3ccaf7641288aedd28c05014886608f60381",
+      "purpose": "Emit context-bound script, messaging, WebCrypto, WASM, and explicit fetch-causality metadata",
+      "component": "Blink bindings, messaging, fetch, WebCrypto, and V8 metrics",
+      "classification": "passive-observation"
+    },
+    {
+      "file": "0004-browser-core-readable-stream-track-events.patch",
+      "sha256": "c2bc4044501935b02e1c9d4b78db3f819acf79cfaf17bc452d3e48af864195d9",
+      "purpose": "Emit opt-in metadata-only causal results for JavaScript default and BYOB ReadableStream reader calls",
+      "component": "Blink ReadableStream default and BYOB readers",
+      "classification": "passive-observation"
+    },
+    {
+      "file": "0005-browser-core-device-memory-override.patch",
+      "sha256": "9cd6e602159e3d9853471e54a394c5f966963dd0ffaae66023fcf367989899ef",
+      "purpose": "Let a research capture substitute the host physical memory size that navigator.deviceMemory and the Device-Memory client hint are derived from, through the unmodified upstream rounding and clamp",
+      "component": "Blink common device memory + content browser-to-renderer command line",
+      "classification": "interactive-evaluation"
+    },
+    {
+      "file": "0006-browser-core-binding-script-attribution.patch",
+      "sha256": "b5fbda948acf4c809ceda8e4121478ac6238f005721d997fecd27903b81fdc22",
+      "purpose": "Attach the current V8 script identifier to opt-in generated Blink binding trace slices so browser-internal ambient reads no longer mask script activity",
+      "component": "Blink generated-binding runtime trace macro",
+      "classification": "passive-observation"
+    },
+    {
+      "file": "0007-browser-core-script-execution-scope.patch",
+      "sha256": "1feae9792e158745bd520b63703995ad8298904adc002df70846eaba8245cae3",
+      "purpose": "Emit an opt-in scoped script execution boundary whose closed duration or open state survives blocked page-thread readback",
+      "component": "Blink V8 script runner",
+      "classification": "passive-observation"
+    },
+    {
+      "file": "0008-browser-core-encoding-binding-category.patch",
+      "sha256": "d6a57d0a5f7e998c1f85f4d6831a9fa9168f28dcb02481ca867e948813c307db",
+      "purpose": "Split generated text-encoding WebIDL entry events into a separately selectable Perfetto category while preserving broad-scope coverage",
+      "component": "Perfetto categories + Blink generated-binding code generation and runtime trace macro",
+      "classification": "passive-observation"
+    },
+    {
+      "file": "0009-browser-core-body-consumer-track-event.patch",
+      "sha256": "401e30c5383800ce47feb1ef97b61895979476b539e59dba7b5e46bf6e18d3eb",
+      "purpose": "Emit opt-in value-free causal markers for high-level Fetch Body consumption paths that bypass explicit ReadableStream reader hooks",
+      "component": "Blink Fetch Body mixin terminal consumers",
+      "classification": "passive-observation"
+    },
+    {
+      "file": "0010-browser-core-messageport-delivery-correlation.patch",
+      "sha256": "99ebf1c6e76bbb55eaffa0fbae4c463847520abbd11babc0609ece6c00723bcd",
+      "purpose": "Reuse Chromium's existing global Mojo message trace identifier to correlate a value-free MessagePort send with its receiver dispatch attempt",
+      "component": "Blink MessagePort send and dispatch",
+      "classification": "passive-observation"
+    },
+    {
+      "file": "0011-browser-core-lazy-message-trace-identity.patch",
+      "sha256": "3e475fca00d79a5423a80fe340fe9f909c90b5e378b53b2d52a46aadf2b9444e",
+      "purpose": "Preserve lazy Mojo message trace identity without forcing serialization or consuming transferred handles",
+      "component": "Mojo lazy message serialization",
+      "classification": "passive-observation"
+    },
+    {
+      "file": "0012-browser-core-headless-evaluation-user-agent.patch",
+      "sha256": "130ab8fb6c340f756f869704f77b9d179013eb5a899b06679257881d416cfa38",
+      "purpose": "Keep the native browser user-agent identity coherent across headed and headless Browser Core evaluation sessions",
+      "component": "Embedder support shared native user-agent construction",
+      "classification": "interactive-evaluation"
+    },
+    {
+      "file": "0013-browser-core-native-hardware-concurrency.patch",
+      "sha256": "3aa38f87e63a60ee1c40a3a443886891c86959cb367da54af6a8c23d6430ba11",
+      "purpose": "Realize an explicit evaluation hardware-concurrency setting consistently in native page and worker getters",
+      "component": "Blink NavigatorConcurrentHardware",
+      "classification": "interactive-evaluation"
+    },
+    {
+      "file": "0014-browser-core-native-profile-screen.patch",
+      "sha256": "c734c5e7390cf05cfe4ec34ff0c9d5dac667f852a21c915ae6f8aabe3114460e",
+      "purpose": "Realize evaluation screen dimensions and work area through native ScreenInfo shared by main and child-frame widgets",
+      "component": "Native profile realization",
+      "classification": "interactive-evaluation"
+    },
+    {
+      "file": "0015-browser-core-native-profile-timezone.patch",
+      "sha256": "0c0623baf55d08a2ebfffd9a3caf76c7763c122de2a174932f68bcd221124205",
+      "purpose": "Realize evaluation timezone and regional locale through native ICU/V8 controllers for page and worker isolates",
+      "component": "Native profile realization",
+      "classification": "interactive-evaluation"
+    },
+    {
+      "file": "0016-browser-core-evaluation-google-api-notice.patch",
+      "sha256": "29480c5cd2f38669fdf2bc0f6e6a4c6e4b834cef01bd3c3afb949a5f45b6b112",
+      "purpose": "Keep evaluation profile content geometry consistent across tabs by omitting the unsupported Google API startup notice",
+      "component": "Chrome startup UI",
+      "classification": "interactive-evaluation"
+    },
+    {
+      "file": "0017-browser-core-live-native-trace.patch",
+      "sha256": "00fd403681294f34e7aee8386e7d62c3065d801d23d2ded820f7ab01a6c049b7",
+      "purpose": "Drain native research observations while Chromium runs, preserving an append-only partial trace and a final stopped artifact",
+      "component": "Startup tracing controller, Perfetto consumer and Mojo flush bridge",
+      "classification": "passive-observation"
+    },
+    {
+      "file": "0018-browser-core-native-binding-values.patch",
+      "sha256": "7fbcdf1a51cb54bcb3d38d7ec4895c90c93209574426eb6d6dcf8ca982ce5bec",
+      "purpose": "Observe explicitly selected native fingerprint parameters and results with script/context attribution",
+      "component": "Blink generated bindings and native observer; evaluation-only renderer option",
+      "classification": "passive-observation"
+    },
+    {
+      "file": "0019-browser-core-windows-perfetto-binary-stdio.patch",
+      "checkout": "third_party/perfetto",
+      "sha256": "6c4d66e3e4abb889c7e898adfceb00686d3de5f4e75abb92accd2289b868887b",
+      "purpose": "Preserve binary RPC bytes on Windows stdin and stdout for incremental local trace queries",
+      "component": "Pinned Perfetto trace processor stdio server",
+      "classification": "passive-observation"
+    },
+    {
+      "file": "0020-browser-core-extended-native-values.patch",
+      "sha256": "daf4d22776a7567a9c1a414dc32ef35c9524c02ee6d640cbded22b94b4acb1cd",
+      "purpose": "Versioned canvas, audio, display and graphics observations with bounded native buffers and digests",
+      "component": "Generated Blink bindings and local native value observer",
+      "classification": "passive-observation"
+    },
+    {
+      "file": "0021-browser-core-recording-byte-limit.patch",
+      "sha256": "d4b30aa14f2e696d04f449ee4bcd9e7336acee94f23991f33f37fa953e1b81d8",
+      "purpose": "Bound native live recording bytes, preserve partial evidence and publish an explicit capture-limit marker",
+      "component": "Native startup tracing consumer",
+      "classification": "passive-observation"
+    },
+    {
+      "file": "0022-browser-core-segmented-recording.patch",
+      "sha256": "42f1b209a754b96b04ce782d9de6063244c4776ee59b52b21a277df238dc4e9d",
+      "purpose": "Continue one native Perfetto stream across bounded create-only recording parts without restarting the browser or producer",
+      "component": "Native startup tracing consumer",
+      "classification": "passive-observation"
+    },
+    {
+      "file": "0023-browser-core-live-instant-arguments.patch",
+      "sha256": "bd9a076f0c6c60928e80ff8769ddfe075c34d7649349b5419ad40956237f03b8",
+      "purpose": "Publish native private instant values before the next event while preserving slice nesting and validation",
+      "component": "Pinned Perfetto decoder",
+      "classification": "passive-observation",
+      "checkout": "third_party/perfetto"
+    },
+    {
+      "file": "0024-browser-core-live-buffer-continuity.patch",
+      "sha256": "e4e550f8931e396991e844efa132c597b12373c4db40355c0a9a859919368502",
+      "purpose": "Use the pinned sequence-preserving V2 trace buffer for explicit live recording",
+      "component": "Native startup tracing consumer",
+      "classification": "passive-observation"
+    },
+    {
+      "file": "0025-browser-core-buffer-mode-transport.patch",
+      "sha256": "043b4af6097f4dd7aa8467f90b6c351f3ffd276688fafbf18aaae95722fe14ae",
+      "purpose": "Preserve the explicitly selected V2 buffer across Chromium consumer IPC; default remains V1",
+      "component": "Tracing Mojo configuration transport",
+      "classification": "passive-observation"
+    },
+    {
+      "file": "0026-browser-core-recommit-diagnostics.patch",
+      "checkout": "third_party/perfetto",
+      "sha256": "04786de189e58f455b35e30c505f158cb1e128e7e28c84207640214fd316e1c1",
+      "purpose": "Expose bounded chunk-state diagnostics on the existing V2 rejection path without suppressing its failure",
+      "component": "Pinned Perfetto V2 trace buffer",
+      "classification": "passive-observation"
+    },
+    {
+      "file": "0027-browser-core-recording-interruption.patch",
+      "sha256": "07fe4dc917b2a0b72a2ab854e17a068f617801503444b3e7a5449fef5ff9aefb",
+      "purpose": "Persist incomplete status after live tracing errors, unexpected stops or writer failures; retain captured prefixes",
+      "component": "Startup tracing lifecycle",
+      "classification": "passive-observation"
+    },
+    {
+      "file": "0028-browser-core-established-trace-buffer.patch",
+      "sha256": "41ab04a2415a60054219450dd46f74d11f3ea3305b58ebf7bafb7482c4989418",
+      "purpose": "Use the established buffer after reproducing an experimental V2 delayed-commit crash",
+      "component": "Native tracing buffer reliability",
+      "classification": "passive-observation"
+    },
+    {
+      "file": "0029-browser-core-v1-evicted-read-continuity.patch",
+      "sha256": "4586bf685cf49b0d20248b4f8e7e4bfeee004adb25c708aa6213decbcc58f239",
+      "purpose": "Remember exactly consumed complete eviction tails; preserve true loss, gaps and incomplete-chunk warnings",
+      "component": "Native tracing buffer reliability",
+      "classification": "passive-observation",
+      "checkout": "third_party/perfetto"
+    },
+    {
+      "file": "0030-browser-core-corrupt-tail-fixture.patch",
+      "checkout": "third_party/perfetto",
+      "sha256": "cb2156d57da4bbd9fc2c1bd45adbc3a7d8f013255ba1082e84990015f3717b6d",
+      "purpose": "Make the corruption regression use an out-of-bounds fragment instead of a legal empty final packet, and verify the ABI violation",
+      "component": "Native buffer regression fixture",
+      "classification": "passive-observation"
+    },
+    {
+      "file": "0031-browser-core-v1-tail-diagnostics.patch",
+      "checkout": "third_party/perfetto",
+      "sha256": "470f082741205b5b4a463e706edcdad752a9db108074cb7d15b940166998cb40",
+      "purpose": "Diagnose unresolved V1 continuity warnings with bounded chunk metadata; retain all warning behavior",
+      "component": "Native tracing buffer diagnostics",
+      "classification": "passive-observation"
+    },
+    {
+      "file": "0032-browser-core-v1-evicted-rescrape-regression.patch",
+      "checkout": "third_party/perfetto",
+      "sha256": "926543a5bcb232cbe3120d92ccb85113ef53b1bc9c83fadfc4d37cf50b99832d",
+      "purpose": "Reproduce duplicate packets after an idle incomplete chunk is evicted and scraped again; cover resumed tails, skipped packets and clone policy",
+      "component": "Native tracing buffer regression tests",
+      "classification": "passive-observation"
+    },
+    {
+      "file": "0033-browser-core-v1-evicted-rescrape-cursor.patch",
+      "checkout": "third_party/perfetto",
+      "sha256": "8158710019cddbefe11dd59ba85056288a64e55518d02b45ae416d8690cc36a7",
+      "purpose": "Resume evicted idle chunk scrapes at their retained read cursor, preventing duplicate prefixes while preserving loss counters and rejecting regressive commits",
+      "component": "Native tracing buffer reliability",
+      "classification": "passive-observation"
+    },
+    {
+      "file": "0034-browser-core-sorter-late-event-diagnostics.patch",
+      "checkout": "third_party/perfetto",
+      "sha256": "8afdc7cede61e6e072199d04ec251fd173cec68edfc6c1e6d4281c2e6f49390b",
+      "purpose": "Diagnose the first eight discarded timestamps per sorter extraction without changing sorting or warning behavior",
+      "component": "Native decoder diagnostics",
+      "classification": "passive-observation"
+    },
+    {
+      "file": "0035-browser-core-flush-scrape-diagnostics.patch",
+      "checkout": "third_party/perfetto",
+      "sha256": "3abd2efa608d017c227bfa8914b973589f3174941641fec78689e1c270d4264c",
+      "purpose": "Bounded metadata diagnostics for flush-time SMB scraping gates and writer registration; no behavior change",
+      "component": "Native tracing service diagnostics",
+      "classification": "passive-observation"
+    },
+    {
+      "file": "0036-browser-core-v1-read-stop-diagnostics.patch",
+      "checkout": "third_party/perfetto",
+      "sha256": "18d5ae17c72d3bc9219a54b66aad23c0fb93ae0489a48e44dd1a4a40f4008ccc",
+      "purpose": "Bounded metadata diagnostics for V1 read-side sequence stops and copy rejects; no behavior change",
+      "component": "Native tracing service diagnostics",
+      "classification": "passive-observation"
+    },
+    {
+      "file": "0037-browser-core-flush-fence-no-flush-writers.patch",
+      "checkout": "third_party/perfetto",
+      "sha256": "5b11691961fa9a0dad07d12f30ee4ce0145a5f479aade45ca87ec2beac6dafc6",
+      "purpose": "Flush fences no_flush writers: empty-instance flush requests for scraping producers and a producer-side commit-batch drain before acknowledgement",
+      "component": "Native tracing service",
+      "classification": "ordering-repair"
+    },
+    {
+      "file": "0039-browser-core-extended-family-observation.patch",
+      "sha256": "fffd26105530ec6207ddde505ba1d4de5bf77bc12c6bdf42ac833dd1ab193507",
+      "purpose": "Extend the fingerprint-v1 observation allowlist to GPU adapter info/limits, network information, battery, fonts, media devices, speech voices, UA-CH, storage, permissions and media-capability calls; array results record length metadata",
+      "component": "Generated Blink bindings and native observer; evaluation-only renderer option",
+      "classification": "passive-observation"
+    },
+    {
+      "file": "0040-browser-core-passive-context-ownership.patch",
+      "sha256": "1f1248f80b389c1c424047ffe0b2a6698ba293d2a27eb55013b17c8c78d1fd3d",
+      "purpose": "Attach bounded native frame, document, V8-realm and worker ownership at binding entry; preserve redacted context URL labels without debugger probes",
+      "component": "Blink native binding observer; existing opt-in value inspection",
+      "classification": "passive-observation"
+    },
+    {
+      "file": "0041-browser-core-context-metadata-cache.patch",
+      "sha256": "678bb48874923e374f18bd8a37d54760666bb3b57ae527924d1538f76c1c7be1",
+      "purpose": "Reuse native context JSON only for an exact bounded snapshot of every serialized field, with one entry per thread and no retained browser handles",
+      "component": "Blink passive observation",
+      "classification": "passive-observation"
+    },
+    {
+      "file": "0042-browser-core-observation-omission-diagnostics.patch",
+      "sha256": "763b63b6a04bba3f7df23405640e8ab0b099bfbd558e60c4a42d6cea5fc16558",
+      "purpose": "Report fixed-label omitted-observation diagnostics at existing native lifecycle guards without inspecting values or weakening the guards",
+      "component": "Blink passive observation",
+      "classification": "passive-observation"
+    },
+    {
+      "file": "0043-browser-core-realm-independent-value-retention.patch",
+      "sha256": "a174efaa38581c0275de81c405009e0736cf01e5d94e2bd2c4e049c265eb1f51",
+      "purpose": "Retain bounded native values and image dimensions with explicitly limited context metadata, without disposed per-context operations or wrapper creation",
+      "component": "Blink passive observation",
+      "classification": "passive-observation"
+    },
+    {
+      "file": "0044-browser-core-native-js-stack-context.patch",
+      "sha256": "ff418561f61eb1ec4b979bb012a11e571fa42b3741cef6a1f7927fd93fa2de14",
+      "purpose": "Record the nearest visible JavaScript frame context separately from native binding ownership",
+      "component": "Blink generated binding passive trace metadata",
+      "classification": "passive-observation"
+    },
+    {
+      "file": "0045-browser-core-trace-stop-timeout-diagnostics.patch",
+      "sha256": "ad4bb1545f3b0dfa43fdde229ed5ffaf92362e5ff377248a86c09644f284e48c",
+      "purpose": "Retain a diagnostic when producer stop acknowledgement times out without asserting packet loss",
+      "component": "Perfetto service and trace processor diagnostics",
+      "classification": "passive-observation"
+    },
+    {
+      "file": "0046-browser-core-windows-native-service-tests.patch",
+      "sha256": "cc73c6cfbc472dba8c608f5ed76e4050b1f0d04ebf324e0c15719040340e2520",
+      "purpose": "Compile native service outcome tests on Windows instead of silently selecting zero cases",
+      "component": "Perfetto native test registration",
+      "classification": "passive-observation"
+    },
+    {
+      "file": "0047-browser-core-windows-service-test-portability.patch",
+      "sha256": "84092683221a74f43749143969e20caf523a38c68749bf2e31ab8353335f5fe2",
+      "purpose": "Compile Windows service tests with an explicit unsigned comparison while retaining the POSIX-only pipe-case exclusion",
+      "component": "Perfetto native test portability",
+      "classification": "passive-observation"
+    },
+    {
+      "file": "0048-browser-core-final-stop-stats-after-live-read.patch",
+      "sha256": "e53ebf9e4ce07850cdbf1ea5f0ba9bdec55710f5a6a3d884d4afa276116bc29c",
+      "purpose": "Re-emit final stop statistics after an earlier live read, with acknowledged and timeout regressions",
+      "component": "Perfetto final recording diagnostics",
+      "classification": "passive-observation"
+    },
+    {
+      "file": "0049-browser-core-stop-timeout-producer-details.patch",
+      "sha256": "e217cee2bf4708ab7feef06236775ef471314017ec123ac77c68f4487b26fb13",
+      "purpose": "Retain bounded run-local producer and data-source identity diagnostics when the stop acknowledgement deadline expires, without changing stop behavior",
+      "component": "Perfetto service and trace processor diagnostics",
+      "classification": "passive-observation"
+    },
+    {
+      "file": "0050-browser-core-host-callback-execution.patch",
+      "sha256": "0574b04e9d71a0d2669486f7368f9fee257940b1150fbc091ddda9db7261f0e2",
+      "purpose": "Observe exact WebIDL host-to-JavaScript callback execution scope with bounded callback descriptors and execution identity",
+      "component": "Blink generated callback invocation",
+      "classification": "passive-observation"
+    },
+    {
+      "file": "0051-browser-core-message-callback-correlation-v3.patch",
+      "sha256": "fe4b5414f06621bc4f8c04674f364f7e84a306cba49eec8faa47d0a5261fd22f",
+      "purpose": "Correlate a MessagePort receiver dispatch with the exact EventListener callback for the same native MessageEvent",
+      "component": "Blink MessagePort and generated callback invocation",
+      "classification": "passive-observation"
+    },
+    {
+      "file": "0052-browser-core-message-dispatch-id-lifetime.patch",
+      "sha256": "aa6c86cd03d0aca66719946cfac791eabcbe85448a8fbcead2a121658264536d",
+      "purpose": "Own the scoped MessagePort dispatch identifier until exact EventListener dispatch finishes",
+      "component": "Blink message-dispatch correlation context",
+      "classification": "passive-observation-correctness"
+    },
+    {
+      "file": "0053-browser-core-promise-microtask-execution.patch",
+      "sha256": "5dfe4e88c203980096edd6508c33c06461fe91414de56a5187a08c371e9bdd5f",
+      "purpose": "Expose exact value-free V8 Promise-hook execution scopes and their same-track contained native activity",
+      "component": "Blink scheduler Promise hook",
+      "classification": "passive-observation-with-promise-hook-fast-path-effect"
+    },
+    {
+      "file": "0054-browser-core-dynamic-code-materialization.patch",
+      "checkout": "v8",
+      "sha256": "ae965fc54cb5c82947c95ba139786e9f10d016f6cb7af72408afc098003ad178",
+      "purpose": "Expose successful value-free eval and Function-family code materialization, cache reuse, caller script identity, and generated script identity while excluding debugger parsing",
+      "component": "V8 compiler dynamic string-code path",
+      "classification": "passive-observation"
+    }
+  ],
+  "native_event_routes": {
+    "schema": "browser-core.native-event-routes/8",
+    "routes": [
+      {
+        "native_name": "BrowserCore.ScriptRun",
+        "trace_category": "browser_core.debug",
+        "category": "execution",
+        "name": "script.run",
+        "emitters": 1,
+        "patch": "0003-browser-core-context-and-causality-track-events.patch",
+        "sources": [
+          "third_party/blink/renderer/bindings/core/v8/v8_script_runner.cc"
+        ]
+      },
+      {
+        "native_name": "BrowserCore.ScriptExecution",
+        "trace_category": "browser_core.debug",
+        "category": "execution",
+        "name": "script.execution",
+        "emitters": 1,
+        "patch": "0007-browser-core-script-execution-scope.patch",
+        "sources": [
+          "third_party/blink/renderer/bindings/core/v8/v8_script_runner.cc"
+        ]
+      },
+      {
+        "native_name": "BrowserCore.HostCallbackExecution",
+        "trace_category": "browser_core.debug",
+        "category": "execution",
+        "name": "host.callback.execution",
+        "emitters": 1,
+        "patch": "0050-browser-core-host-callback-execution.patch",
+        "sources": [
+          "third_party/blink/renderer/bindings/core/v8/callback_invoke_helper.cc"
+        ]
+      },
+      {
+        "native_name": "BrowserCore.CanvasReadback",
+        "trace_category": "browser_core.debug",
+        "category": "api",
+        "name": "HTMLCanvasElement.toDataURL",
+        "emitters": 1,
+        "patch": "0002-browser-core-canvas-track-event.patch",
+        "sources": [
+          "third_party/blink/renderer/core/html/canvas/html_canvas_element.cc"
+        ]
+      },
+      {
+        "native_name": "BrowserCore.CryptoDigest",
+        "trace_category": "browser_core.debug",
+        "category": "crypto",
+        "name": "SubtleCrypto.digest",
+        "emitters": 1,
+        "patch": "0003-browser-core-context-and-causality-track-events.patch",
+        "sources": [
+          "third_party/blink/renderer/modules/crypto/subtle_crypto.cc"
+        ]
+      },
+      {
+        "native_name": "BrowserCore.WasmCompiled",
+        "trace_category": "browser_core.debug",
+        "category": "wasm",
+        "name": "WebAssembly.compile.completed",
+        "emitters": 1,
+        "patch": "0003-browser-core-context-and-causality-track-events.patch",
+        "sources": [
+          "third_party/blink/renderer/bindings/core/v8/v8_metrics.cc"
+        ]
+      },
+      {
+        "native_name": "BrowserCore.FetchCall",
+        "trace_category": "browser_core.debug",
+        "category": "api",
+        "name": "fetch",
+        "emitters": 1,
+        "patch": "0003-browser-core-context-and-causality-track-events.patch",
+        "sources": [
+          "third_party/blink/renderer/core/fetch/fetch_manager.cc"
+        ]
+      },
+      {
+        "native_name": "BrowserCore.FetchRequestStart",
+        "trace_category": "browser_core.debug",
+        "category": "network",
+        "name": "fetch.request.start",
+        "emitters": 1,
+        "patch": "0003-browser-core-context-and-causality-track-events.patch",
+        "sources": [
+          "third_party/blink/renderer/core/fetch/fetch_manager.cc"
+        ]
+      },
+      {
+        "native_name": "BrowserCore.MessagePost",
+        "trace_category": "browser_core.debug",
+        "category": "message",
+        "name": "MessagePort.postMessage",
+        "emitters": 1,
+        "patch": "0003-browser-core-context-and-causality-track-events.patch",
+        "sources": [
+          "third_party/blink/renderer/core/messaging/message_port.cc"
+        ]
+      },
+      {
+        "native_name": "BrowserCore.MessageDispatch",
+        "trace_category": "browser_core.debug",
+        "category": "message",
+        "name": "MessagePort.message.dispatch",
+        "emitters": 1,
+        "patch": "0010-browser-core-messageport-delivery-correlation.patch",
+        "sources": [
+          "third_party/blink/renderer/core/messaging/message_port.cc"
+        ]
+      },
+      {
+        "native_name": "BrowserCore.StreamReadRequest",
+        "trace_category": "browser_core.stream",
+        "category": "stream",
+        "name": "stream.read.request",
+        "emitters": 2,
+        "patch": "0004-browser-core-readable-stream-track-events.patch",
+        "sources": [
+          "third_party/blink/renderer/core/streams/readable_stream_default_reader.cc",
+          "third_party/blink/renderer/core/streams/readable_stream_byob_reader.cc"
+        ]
+      },
+      {
+        "native_name": "BrowserCore.StreamReadResult",
+        "trace_category": "browser_core.stream",
+        "category": "stream",
+        "name": "stream.read.result",
+        "emitters": 2,
+        "patch": "0004-browser-core-readable-stream-track-events.patch",
+        "sources": [
+          "third_party/blink/renderer/core/streams/readable_stream_default_reader.cc",
+          "third_party/blink/renderer/core/streams/readable_stream_byob_reader.cc"
+        ]
+      },
+      {
+        "native_name": "BrowserCore.BodyConsume",
+        "trace_category": "browser_core.stream",
+        "category": "stream",
+        "name": "body.consume",
+        "emitters": 1,
+        "patch": "0009-browser-core-body-consumer-track-event.patch",
+        "sources": [
+          "third_party/blink/renderer/core/fetch/body.cc"
+        ]
+      },
+      {
+        "native_name": "BrowserCore.PromiseMicrotaskExecution",
+        "trace_category": "browser_core.debug",
+        "category": "execution",
+        "name": "promise.microtask.execution",
+        "emitters": 1,
+        "patch": "0053-browser-core-promise-microtask-execution.patch",
+        "sources": [
+          "third_party/blink/renderer/core/scheduler/task_attribution_tracker_impl.cc"
+        ]
+      },
+      {
+        "native_name": "BrowserCore.DynamicCodeMaterialized",
+        "trace_category": "browser_core.debug",
+        "category": "execution",
+        "name": "dynamic.code.materialized",
+        "emitters": 1,
+        "patch": "0054-browser-core-dynamic-code-materialization.patch",
+        "sources": [
+          "src/codegen/compiler.cc"
+        ]
+      }
+    ]
+  },
+  "postimages": [
+    {
+      "path": "content/browser/renderer_host/render_process_host_impl.cc",
+      "sha256": "ed8145f00ccd192558e03cff80460a7d769470f937c032179adac6d45b52c9e9"
+    },
+    {
+      "path": "third_party/blink/common/device_memory/approximated_device_memory.cc",
+      "sha256": "0d2d60d1637d1204d5c6afa6f41800391f1f47702d1c02a68157b9dae1fd2c69"
+    },
+    {
+      "path": "content/child/runtime_features.cc",
+      "sha256": "4f7471685c8e6bd70ae87777ade2daf9b3d4d8f77e537e281774b5f7a4b3188f"
+    },
+    {
+      "path": "base/trace_event/builtin_categories.h",
+      "sha256": "a55c353b9e9dddbe7ed173bdf808a10a7cb14cef8bcadccdce01e15806b719a0"
+    },
+    {
+      "path": "third_party/blink/renderer/core/html/canvas/html_canvas_element.cc",
+      "sha256": "1a41b66e0717fda21eb94387417cec394bc2d37b43e259568bc96a448e7dd800"
+    },
+    {
+      "path": "third_party/blink/renderer/bindings/core/v8/v8_metrics.cc",
+      "sha256": "2e2a5ac0b340ae3dbf733dea3980c76c32b8be9c7120e78ffc4248e2143a8a83"
+    },
+    {
+      "path": "third_party/blink/renderer/bindings/core/v8/v8_metrics.h",
+      "sha256": "f2f71e62cacfc7f0c00a2b53b64a0e8580f63533baf462ab5ffd450630cb63fe"
+    },
+    {
+      "path": "third_party/blink/renderer/bindings/core/v8/v8_script_runner.cc",
+      "sha256": "193431ff77ae48161d2a0132dfd9f9265ac120afc41317160e45c70c8c150a54"
+    },
+    {
+      "path": "third_party/blink/renderer/bindings/scripts/bind_gen/interface.py",
+      "sha256": "7d06aff37a9f1147dcf9a651788d76c611377ff9cc2eafaddb4cc0c5898cb0eb"
+    },
+    {
+      "path": "third_party/blink/renderer/core/fetch/fetch_manager.cc",
+      "sha256": "7175f8a4c6c640fe3b2491e0604d1a6cc1ff84fff1c5e769840860c4177108f4"
+    },
+    {
+      "path": "third_party/blink/renderer/core/fetch/body.cc",
+      "sha256": "e0e02351d6266c24224910c44f3558fe7e1590b33dd10c3a0ad616660c8e381a"
+    },
+    {
+      "path": "third_party/blink/renderer/core/fetch/body.h",
+      "sha256": "cd93019b2f3dfb800c38dab81bba8d7214278ae9d0dfab679c33c779eb24341f"
+    },
+    {
+      "path": "third_party/blink/renderer/core/messaging/message_port.cc",
+      "sha256": "4c1b2804b3c740e2ec836954c21ac5780119cac9eb961b377167508f9a5e5542"
+    },
+    {
+      "path": "third_party/blink/renderer/modules/crypto/subtle_crypto.cc",
+      "sha256": "53d913588e4984a587699c174136cabbaef5ad9ee33733b6bace142af3240f4f"
+    },
+    {
+      "path": "third_party/blink/renderer/core/streams/readable_stream_default_reader.cc",
+      "sha256": "9d3f69a6542eee80f9a6f4348647835d703f636ab59ba1ab19837df176613dd1"
+    },
+    {
+      "path": "third_party/blink/renderer/core/streams/readable_stream_byob_reader.cc",
+      "sha256": "1c6ff3a6c568a19cf06f4ac4ef28f1deb202548ad3b32c6088752b7153e97bcc"
+    },
+    {
+      "path": "third_party/blink/renderer/platform/bindings/runtime_call_stats.h",
+      "sha256": "e112968bca1fe936662700d3951c17fc7e4da9a18ef68216aeb6ad04e882b627"
+    },
+    {
+      "path": "mojo/public/cpp/bindings/lib/message.cc",
+      "sha256": "5a45dd594c94eff8addb07c5eec2bd36636c5c1514f9fddbaa49af7946de855b"
+    },
+    {
+      "path": "components/embedder_support/user_agent_utils.cc",
+      "sha256": "a5962c0eb7abe19adb82d337e3455bc0b4cd8580f5345a591d8f0ae18b55d793"
+    },
+    {
+      "path": "third_party/blink/renderer/core/frame/navigator_concurrent_hardware.cc",
+      "sha256": "823152f22e2576cd53bbe63552f724abc7bdad23d9b1f7c62ee1d11bf36a16c1"
+    },
+    {
+      "path": "content/browser/renderer_host/render_widget_host_view_base.cc",
+      "sha256": "7efbbe3c5787725a2a311b70c4b8be1c227a384b21c9de4e22a10cfc34e645f4"
+    },
+    {
+      "path": "third_party/blink/renderer/core/timezone/timezone_controller.cc",
+      "sha256": "db54c05b63bcb30b96a4a6586928c10346d143825e83123768eae2096c8312b5"
+    },
+    {
+      "path": "third_party/blink/renderer/core/timezone/timezone_controller.h",
+      "sha256": "246282483d657697a734c7e0968c2bb7807b340797893e921d722f67fd476de7"
+    },
+    {
+      "path": "chrome/browser/ui/startup/infobar_utils.cc",
+      "sha256": "df3ba3bb41586a3708e95177775b987ffd5cb00bdfe7c32c6b446e3a9f5cb2e2"
+    },
+    {
+      "path": "services/tracing/public/cpp/startup_tracing_controller.cc",
+      "sha256": "eff7e5cdaa19b29d1ab9f879a2696aea851e3cfe64fee7bb745d6934d5344527"
+    },
+    {
+      "path": "services/tracing/public/cpp/perfetto/perfetto_tracing_backend.cc",
+      "sha256": "52a181cb25dec9b4c2ac870f6b4ba9d2453c7e3f262c310f86f3980b029bf72b"
+    },
+    {
+      "path": "services/tracing/public/mojom/perfetto_service.mojom",
+      "sha256": "910960edfed12e3b5ed2188e85ce4c6e6b7aea3038cfa8e8562b1a8a8b59bece"
+    },
+    {
+      "path": "services/tracing/perfetto/consumer_host.h",
+      "sha256": "8205c2ba963a99ef0b768a828ce969884b651d4a775372df68cf051cdb470938"
+    },
+    {
+      "path": "services/tracing/perfetto/consumer_host.cc",
+      "sha256": "7de25485e84145ae2312249a72821bf53ce3f89548a8c71ca15f536e3496816a"
+    },
+    {
+      "path": "third_party/blink/renderer/bindings/core/v8/browser_core_binding_observer.h",
+      "sha256": "461724e941e507b7eba31d6ddff11bb3f5f9d76f5cef50acb580fcbdcc33f152"
+    },
+    {
+      "path": "third_party/blink/renderer/bindings/core/v8/browser_core_binding_observer.cc",
+      "sha256": "70fb11514a718b3a4cea4565fba66fd97931132a48c3748fee098d1f88ea0def"
+    },
+    {
+      "path": "third_party/blink/renderer/bindings/bindings.gni",
+      "sha256": "a5b301b252851c91d6dbf8ed404ec187c89ff626787f7a3eba589b58cccb5aed"
+    },
+    {
+      "path": "third_party/perfetto/src/trace_processor/rpc/stdiod.cc",
+      "sha256": "ec6544d295f3e14e573b431fe26695eaf92bd89f949063a6ea51857ad54b4bbb"
+    },
+    {
+      "path": "third_party/perfetto/src/trace_processor/importers/common/slice_tracker.h",
+      "sha256": "4fa755f9d4ddde256da9e7d21add4a6e92de8fcf2b6839b0795e0f9ab13701fb"
+    },
+    {
+      "path": "third_party/perfetto/src/trace_processor/importers/common/slice_tracker.cc",
+      "sha256": "783a540a9a919c463276673f8371ae87627cbd7a574cd919da4d522913ead647"
+    },
+    {
+      "path": "third_party/perfetto/src/trace_processor/importers/common/slice_tracker_unittest.cc",
+      "sha256": "ca0979c7a591c10dd3c791133fd84b98ed20d1e0c2c4abf1c9212d56a22d5578"
+    },
+    {
+      "path": "services/tracing/public/mojom/trace_config_mojom_traits.h",
+      "sha256": "64615b9d89715a004d5cd5a65f589d1924e65eb902950e297d6a8d4d744834d1"
+    },
+    {
+      "path": "services/tracing/public/mojom/trace_config_mojom_traits.cc",
+      "sha256": "de6ecffdc92bfc9ca13ee267d6dbef7cb3fa344c44cae61de1dab84147794950"
+    },
+    {
+      "path": "third_party/perfetto/src/tracing/service/trace_buffer_v2.cc",
+      "sha256": "f96b4a78c564591fbf97f79fcbcd69054bef72cf5eb636a531693a891aefffd8"
+    },
+    {
+      "path": "third_party/perfetto/src/tracing/service/trace_buffer_v1.cc",
+      "sha256": "562702fe8694b9ab96039a2e5f2a88932d73468260233a465dc33e7a8f801c3d"
+    },
+    {
+      "path": "third_party/perfetto/src/tracing/service/trace_buffer_v1.h",
+      "sha256": "7af336fdcdb075377d3f1f8622a2fabc86e3b5b477c193284850b5bd8e33354d"
+    },
+    {
+      "path": "third_party/perfetto/src/tracing/service/trace_buffer_v1_unittest.cc",
+      "sha256": "bb262dfd988b034b6ec1f408244c0cb7459234a2cb8dc60d4c8939ad9edbe6be"
+    },
+    {
+      "path": "third_party/perfetto/src/trace_processor/sorter/trace_sorter.cc",
+      "sha256": "6ff65baa153e08d755e4fad6ca784247ee75078f11152cfa5c1b6a25df3bac7a"
+    },
+    {
+      "path": "third_party/perfetto/src/tracing/service/tracing_service_endpoints_impl.cc",
+      "sha256": "c3ece19627b4739b4b79170f6be38fa27cecd330fc54f6db59e891fc70b0ec4c"
+    },
+    {
+      "path": "third_party/perfetto/src/tracing/service/tracing_service_impl.cc",
+      "sha256": "a5073933c75bacbf1f1fd4c30dfe02cc8a9a9ce2515d7af384a3f5ab2eeaf608"
+    },
+    {
+      "path": "third_party/perfetto/src/tracing/internal/tracing_muxer_impl.cc",
+      "sha256": "b9966d1a1143252a6d0e3c788e19fa3172a5b0ecb453d1c2609b4882fedcf8a4"
+    },
+    {
+      "path": "third_party/blink/renderer/platform/bindings/runtime_call_stats.cc",
+      "sha256": "e0a4014831ad168b22345c517a83a4886aab3789f24e0cc564c5f81763adaeda"
+    },
+    {
+      "path": "third_party/perfetto/protos/perfetto/common/trace_stats.proto",
+      "sha256": "3eae0d61120d7179e18d3df2c5056e6458b6135ad677ad3a5e8463855c3bcebc"
+    },
+    {
+      "path": "third_party/perfetto/src/trace_processor/importers/proto/proto_trace_reader.cc",
+      "sha256": "d71108563fc78c842855b64443fa6339573eb41dda531bcf7783760a425c5d5b"
+    },
+    {
+      "path": "third_party/perfetto/src/trace_processor/storage/stats.h",
+      "sha256": "4e3ae5b69654015cf9bd8df7eaf3210b861e7bf62fc037a6ae7a658a8c7927ff"
+    },
+    {
+      "path": "third_party/perfetto/src/tracing/service/tracing_service_impl_unittest.cc",
+      "sha256": "42097c00855a6bde71b7c03ef4e88418928cc1f4d4c671cfed83948a8c7b2474"
+    },
+    {
+      "path": "third_party/perfetto/src/tracing/service/tracing_service_session.h",
+      "sha256": "f35bd6f1a855b76039413929754d4de69ddadf45e3d4b0285e854f60f118de21"
+    },
+    {
+      "path": "third_party/perfetto/src/tracing/service/BUILD.gn",
+      "sha256": "4ed27240bf33719b2bdd49af6a0ea24169db9c504083ca3b4e7dc32665f7c10c"
+    },
+    {
+      "path": "third_party/perfetto/src/tracing/test/BUILD.gn",
+      "sha256": "b99c59e13dfb377edf6b93c4403b7332f2c7d7b73890e258d355bca41f606a41"
+    },
+    {
+      "path": "third_party/perfetto/src/trace_processor/importers/proto/proto_trace_reader_unittest.cc",
+      "sha256": "93e59c513779320e3cb038a08421784d1bf3c4bbddaf4d22fdd1359df576ac94"
+    },
+    {
+      "path": "third_party/blink/renderer/bindings/core/v8/callback_invoke_helper.cc",
+      "sha256": "18759d260f026c2a86f1264971b16e72006180c4bb555dde1b48ea91330df3bf"
+    },
+    {
+      "path": "third_party/blink/renderer/platform/instrumentation/browser_core_message_dispatch_context.h",
+      "sha256": "6f5f86e41ca64342d057da16902f2f5f9c71b93ca0fc46479fbf83fa2f660ce0"
+    },
+    {
+      "path": "third_party/blink/renderer/core/scheduler/task_attribution_tracker_impl.cc",
+      "sha256": "f27d7ea625cf9a2b9184ac62bb2274e74c2dca57997da063a6d274b0eead20d7"
+    },
+    {
+      "path": "third_party/blink/renderer/core/workers/worker_thread.cc",
+      "sha256": "0b77937316b86ee0edfa5ece598a4d89e6da41424779685c7e7d40e384d6c3e8"
+    },
+    {
+      "path": "third_party/blink/renderer/platform/bindings/v8_per_isolate_data.cc",
+      "sha256": "7a71bec67b85b32e3274530527f259a6252b7621ac88a831dbfe2fafb2f3e3d4"
+    },
+    {
+      "path": "v8/src/codegen/compiler.cc",
+      "sha256": "353d60b5103aa4890b40cc4bcbb009465ece62381100f0b48ea089c48613e085"
+    },
+    {
+      "path": "v8/src/tracing/trace-categories.h",
+      "sha256": "fb4192d7d148e630eec9ebb82f62e75545d60c2703b91c87fa740e13f93d3d8d"
+    }
+  ],
+  "dependencies": [
+    {
+      "path": "third_party/perfetto",
+      "revision": "7b573c1c00f5d5890f496a87b4876a995b6a1c66"
+    },
+    {
+      "path": "v8",
+      "revision": "caa723ab9c621fcec3534de035b08d35e2947760"
+    }
+  ]
+}
